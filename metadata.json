@@ -1,0 +1,8 @@
+{
+  "name": "Sistem Presensi Siswa SD Negeri Karanggintung 06",
+  "description": "Aplikasi absensi harian barcode siswa, rekap bulanan 5 hari belajar, kalender hari libur, dan cetak laporan resmi SD Negeri Karanggintung 06.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased font-sans;
+  }
+}
+
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* When printing monthly summary */
+  body.print-mode-monthly .app-container {
+    display: none !important;
+  }
+
+  body.print-mode-monthly #print-report-container {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* When printing student ID cards */
+  body.print-mode-cards .app-container {
+    display: none !important;
+  }
+
+  body.print-mode-cards #print-cards-container {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 1.2cm 1cm 1.2cm 1cm;
+  }
+}
+
+#print-report-container {
+  display: none;
+}
+
+body.print-mode-monthly #print-report-container {
+  display: block;
+}
+
+#print-cards-container {
+  display: none;
+}
+
+body.print-mode-cards #print-cards-container {
+  display: block;
+}
