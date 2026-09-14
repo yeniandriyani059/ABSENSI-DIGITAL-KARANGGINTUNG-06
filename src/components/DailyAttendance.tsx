@@ -76,17 +76,16 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
 
   // Local working state for the daily sheet
   const [localStatuses, setLocalStatuses] = useState<{
-    [studentId: string]: { status: AttendanceStatus; notes: string };
+    [studentId: string]: { status: AttendanceStatus };
   }>({});
 
   // Sync localStatuses when date or class changes
   React.useEffect(() => {
-    const nextStatuses: { [studentId: string]: { status: AttendanceStatus; notes: string } } = {};
+    const nextStatuses: { [studentId: string]: { status: AttendanceStatus } } = {};
     classStudents.forEach((student) => {
-      const rec = existingMap.get(student.id);
+      const rec = existingMap.get(student.nisn);
       nextStatuses[student.id] = {
-        status: rec ? rec.status : 'H',
-        notes: rec?.notes || '',
+        status: rec ? rec.status : 'Hadir',
       };
     });
     setLocalStatuses(nextStatuses);
@@ -104,24 +103,13 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
     setSaveSuccess(false);
   };
 
-  const handleNotesChange = (studentId: string, notes: string) => {
-    setLocalStatuses((prev) => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        notes,
-      },
-    }));
-    setSaveSuccess(false);
-  };
-
   const handleMarkAllHadir = () => {
     setLocalStatuses((prev) => {
       const updated = { ...prev };
       classStudents.forEach((s) => {
         updated[s.id] = {
           ...updated[s.id],
-          status: 'H',
+          status: 'Hadir',
         };
       });
       return updated;
@@ -130,13 +118,13 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
 
   const handleSave = () => {
     const newRecords: AttendanceRecord[] = classStudents.map((s) => {
-      const cur = localStatuses[s.id] || { status: 'H', notes: '' };
+      const cur = localStatuses[s.id] || { status: 'Hadir' };
       return {
-        id: `att-${s.id}-${currentDate}`,
-        studentId: s.id,
+        id: `att-${s.nisn}-${currentDate}`,
+        studentId: s.nisn,
         date: currentDate,
         status: cur.status,
-        notes: cur.notes.trim() ? cur.notes.trim() : undefined,
+        scannedAt: ''
       };
     });
 
@@ -146,11 +134,11 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
   };
 
   // Metrics for today's sheet
-  const statusValues = Object.values(localStatuses) as Array<{ status: AttendanceStatus; notes: string }>;
-  const hadirCount = statusValues.filter((s) => s.status === 'H').length;
-  const sakitCount = statusValues.filter((s) => s.status === 'S').length;
-  const izinCount = statusValues.filter((s) => s.status === 'I').length;
-  const alpaCount = statusValues.filter((s) => s.status === 'A').length;
+  const statusValues = Object.values(localStatuses) as Array<{ status: AttendanceStatus }>;
+  const hadirCount = statusValues.filter((s) => s.status === 'Hadir').length;
+  const sakitCount = statusValues.filter((s) => s.status === 'Sakit').length;
+  const izinCount = statusValues.filter((s) => s.status === 'Izin').length;
+  const alpaCount = statusValues.filter((s) => s.status === 'Alpa').length;
 
   return (
     <div className="space-y-6">
@@ -277,7 +265,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
 
         <div className="bg-orange-50 border border-orange-200 p-3.5 rounded-xl text-orange-900">
           <div className="text-xs font-medium text-orange-700">Terlambat (T)</div>
-          <div className="text-xl sm:text-2xl font-bold mt-1">{statusValues.filter(s => s.status === 'T').length} Siswa</div>
+          <div className="text-xl sm:text-2xl font-bold mt-1">{statusValues.filter(s => s.status === 'Terlambat').length} Siswa</div>
         </div>
 
         <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-xl text-amber-900">
@@ -316,7 +304,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                 <th className="p-3">Nama Siswa</th>
                 <th className="p-3 text-center w-14">L/P</th>
                 <th className="p-3 text-center w-80">Status Kehadiran</th>
-                <th className="p-3">Keterangan Tambahan (Jam Datang/Pulang)</th>
+                <th className="p-3">Waktu Pemindaian (Jika ada)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
@@ -328,12 +316,11 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                 </tr>
               ) : (
                 classStudents.map((student, idx) => {
-                  const cur = localStatuses[student.id] || { status: 'H', notes: '' };
+                  const cur = localStatuses[student.id] || { status: 'Hadir' };
                   // existing record to display time
-                  const existingRecord = records.find(r => r.studentId === student.id && r.date === currentDate);
+                  const existingRecord = records.find(r => r.studentId === student.nisn && r.date === currentDate);
                   let timeString = '';
-                  if (existingRecord?.checkInTime) timeString += `Datang: ${existingRecord.checkInTime} `;
-                  if (existingRecord?.checkOutTime) timeString += `| Pulang: ${existingRecord.checkOutTime}`;
+                  if (existingRecord?.scannedAt) timeString += `${existingRecord.scannedAt}`;
 
                   return (
                     <tr key={student.id} className="hover:bg-slate-50/70 transition-colors">
@@ -351,9 +338,9 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                         <div className="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200">
                           <button
                             type="button"
-                            onClick={() => handleStatusChange(student.id, 'H')}
+                            onClick={() => handleStatusChange(student.id, 'Hadir')}
                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                              cur.status === 'H'
+                              cur.status === 'Hadir'
                                 ? 'bg-emerald-600 text-white shadow-xs'
                                 : 'text-slate-600 hover:text-emerald-700'
                             }`}
@@ -363,9 +350,9 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleStatusChange(student.id, 'T')}
+                            onClick={() => handleStatusChange(student.id, 'Terlambat')}
                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                              cur.status === 'T'
+                              cur.status === 'Terlambat'
                                 ? 'bg-orange-600 text-white shadow-xs'
                                 : 'text-slate-600 hover:text-orange-700'
                             }`}
@@ -375,9 +362,9 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleStatusChange(student.id, 'S')}
+                            onClick={() => handleStatusChange(student.id, 'Sakit')}
                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                              cur.status === 'S'
+                              cur.status === 'Sakit'
                                 ? 'bg-amber-500 text-white shadow-xs'
                                 : 'text-slate-600 hover:text-amber-700'
                             }`}
@@ -387,9 +374,9 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleStatusChange(student.id, 'I')}
+                            onClick={() => handleStatusChange(student.id, 'Izin')}
                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                              cur.status === 'I'
+                              cur.status === 'Izin'
                                 ? 'bg-sky-500 text-white shadow-xs'
                                 : 'text-slate-600 hover:text-sky-700'
                             }`}
@@ -399,9 +386,9 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleStatusChange(student.id, 'A')}
+                            onClick={() => handleStatusChange(student.id, 'Alpa')}
                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                              cur.status === 'A'
+                              cur.status === 'Alpa'
                                 ? 'bg-rose-500 text-white shadow-xs'
                                 : 'text-slate-600 hover:text-rose-700'
                             }`}
@@ -413,26 +400,13 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                       </td>
                       <td className="p-3">
                         <div className="flex flex-col gap-1">
-                          {timeString && (
+                          {timeString ? (
                             <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 self-start">
                               {timeString}
                             </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">-</span>
                           )}
-                          <input
-                            type="text"
-                            placeholder={
-                              cur.status === 'S'
-                                ? 'Alasan sakit...'
-                                : cur.status === 'I'
-                                ? 'Alasan izin...'
-                                : cur.status === 'A'
-                                ? 'Catatan khusus...'
-                                : 'Keterangan...'
-                            }
-                            value={cur.notes}
-                            onChange={(e) => handleNotesChange(student.id, e.target.value)}
-                            className="w-full px-2.5 py-1 text-xs border border-slate-200 rounded-md bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                          />
                         </div>
                       </td>
                     </tr>

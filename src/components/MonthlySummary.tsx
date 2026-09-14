@@ -78,7 +78,7 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
 
     return classStudents.map((student) => {
       const studentRecords = records.filter(
-        (r) => r.studentId === student.id && r.date.startsWith(monthPrefix)
+        (r) => r.studentId === student.nisn && r.date.startsWith(monthPrefix)
       );
 
       let hadir = 0;
@@ -87,15 +87,23 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
       let sakit = 0;
       let alpa = 0;
 
+      const dailyMap = new Map<string, string>();
+
       studentRecords.forEach((r) => {
-        if (r.status === 'H') hadir++;
-        else if (r.status === 'T') {
+        if (!dailyMap.has(r.date)) {
+          dailyMap.set(r.date, r.status);
+        }
+      });
+
+      dailyMap.forEach((status) => {
+        if (status === 'Hadir') hadir++;
+        else if (status === 'Terlambat') {
           hadir++; // Terlambat counts as hadir essentially, but we also track it separately
           terlambat++;
         }
-        else if (r.status === 'I') izin++;
-        else if (r.status === 'S') sakit++;
-        else if (r.status === 'A') alpa++;
+        else if (status === 'Izin') izin++;
+        else if (status === 'Sakit') sakit++;
+        else if (status === 'Alpa') alpa++;
       });
 
       const totalRecorded = hadir + izin + sakit + alpa;

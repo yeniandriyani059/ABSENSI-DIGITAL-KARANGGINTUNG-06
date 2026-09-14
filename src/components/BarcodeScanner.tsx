@@ -51,7 +51,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
   const [scanDate, setScanDate] = useState<string>(getTodayStr());
   const [scanMode, setScanMode] = useState<'datang' | 'pulang'>('datang');
-  const [targetStatus, setTargetStatus] = useState<AttendanceStatus>('H');
+  const [targetStatus, setTargetStatus] = useState<AttendanceStatus>('Hadir');
   const [notes, setNotes] = useState<string>('');
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string>('');
@@ -83,6 +83,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerId = 'barcode-interactive-reader';
   const isProcessingRef = useRef<boolean>(false);
+  const lastScanTimesRef = useRef<Record<string, number>>({});
 
   // Today's records
   const todayRecords = records.filter((r) => r.date === scanDate);
@@ -154,7 +155,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
       const now = new Date();
       const currentHourMinute = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-      const timeStr = now.toLocaleTimeString('id-ID', {
+      const timeStr = now.toLocaleTimeString('en-GB', {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
@@ -169,8 +170,17 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         return;
       }
 
+      // 5-second anti-spam debounce
+      const currentTimeMs = now.getTime();
+      const lastScanTime = lastScanTimesRef.current[matchedStudent.nisn];
+      if (lastScanTime && currentTimeMs - lastScanTime < 5000) {
+        console.log('Debounced fast scan for', matchedStudent.name);
+        return;
+      }
+      lastScanTimesRef.current[matchedStudent.nisn] = currentTimeMs;
+
       const existing = records.find(
-        (r) => r.studentId === matchedStudent.id && r.date === scanDate
+        (r) => r.studentId === matchedStudent.nisn && r.date === scanDate
       );
 
       let finalStatus = targetStatus;
@@ -191,7 +201,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           : (school.checkInTime || '07:00');
           
         if (currentHourMinute > lateLimit) {
-          finalStatus = 'T'; // Terlambat
+          finalStatus = 'Terlambat'; // Terlambat
         }
       } else if (scanMode === 'pulang') {
         const isLowerGrade = matchedStudent.classGrade === '1' || matchedStudent.classGrade === '2';
@@ -219,14 +229,11 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       }
 
       const newRecord: AttendanceRecord = {
-        id: existing?.id || `att-${matchedStudent.id}-${scanDate}`,
-        studentId: matchedStudent.id,
+        id: existing?.id || `att-${matchedStudent.nisn}-${scanDate}`,
+        studentId: matchedStudent.nisn,
         date: scanDate,
-        status: existing?.status === 'T' && scanMode === 'pulang' ? 'T' : finalStatus, // keep late status if checking out
-        notes: notes.trim() ? notes.trim() : (existing?.notes || undefined),
+        status: existing?.status === 'Terlambat' && scanMode === 'pulang' ? 'Terlambat' : finalStatus, // keep late status if checking out
         scannedAt: timeStr,
-        checkInTime: scanMode === 'datang' ? timeStr : existing?.checkInTime,
-        checkOutTime: scanMode === 'pulang' ? timeStr : existing?.checkOutTime,
       };
 
       onRecordAttendance(newRecord);
@@ -241,7 +248,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       });
 
       let successMessage = '';
-      if (finalStatus === 'T' && scanMode === 'datang') {
+      if (finalStatus === 'Terlambat' && scanMode === 'datang') {
         successMessage = 'MAAF KAMU TERLAMBAT';
       } else if (scanMode === 'datang') {
         successMessage = 'SELAMAT PRESENSI DATANG BERHASIL';
@@ -250,7 +257,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       }
 
       setNotification({
-        type: finalStatus === 'T' && scanMode === 'datang' ? 'warning' : 'success',
+        type: finalStatus === 'Terlambat' && scanMode === 'datang' ? 'warning' : 'success',
         message: successMessage,
       });
 
@@ -848,24 +855,24 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                 <span className="text-slate-600 font-medium">Status Kehadiran:</span>
                 <span
                   className={`px-2.5 py-1 rounded-full font-bold uppercase ${
-                    lastScannedStudent.status === 'H'
+                    lastScannedStudent.status === 'Hadir'
                       ? 'bg-emerald-100 text-emerald-800'
-                      : lastScannedStudent.status === 'T'
+                      : lastScannedStudent.status === 'Terlambat'
                       ? 'bg-orange-100 text-orange-800'
-                      : lastScannedStudent.status === 'S'
+                      : lastScannedStudent.status === 'Sakit'
                       ? 'bg-amber-100 text-amber-800'
-                      : lastScannedStudent.status === 'I'
+                      : lastScannedStudent.status === 'Izin'
                       ? 'bg-sky-100 text-sky-800'
                       : 'bg-rose-100 text-rose-800'
                   }`}
                 >
-                  {lastScannedStudent.status === 'H'
+                  {lastScannedStudent.status === 'Hadir'
                     ? 'Hadir (Masuk)'
-                    : lastScannedStudent.status === 'T'
+                    : lastScannedStudent.status === 'Terlambat'
                     ? 'Terlambat'
-                    : lastScannedStudent.status === 'S'
+                    : lastScannedStudent.status === 'Sakit'
                     ? 'Sakit'
-                    : lastScannedStudent.status === 'I'
+                    : lastScannedStudent.status === 'Izin'
                     ? 'Izin'
                     : 'Alpa'}
                 </span>
@@ -902,32 +909,32 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             <div className="grid grid-cols-4 gap-2 text-center">
               <div className="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
                 <div className="text-lg font-bold text-emerald-700">
-                  {todayRecords.filter((r) => r.status === 'H' || r.status === 'T').length}
+                  {todayRecords.filter((r) => r.status === 'Hadir' || r.status === 'Terlambat').length}
                 </div>
                 <div className="text-[10px] text-emerald-600 font-semibold">
                   Hadir
-                  {todayRecords.filter((r) => r.status === 'T').length > 0 && (
+                  {todayRecords.filter((r) => r.status === 'Terlambat').length > 0 && (
                     <span className="block text-[9px] text-orange-600 font-medium">
-                      ({todayRecords.filter((r) => r.status === 'T').length} Terlambat)
+                      ({todayRecords.filter((r) => r.status === 'Terlambat').length} Terlambat)
                     </span>
                   )}
                 </div>
               </div>
               <div className="p-2 bg-amber-50 rounded-lg border border-amber-100">
                 <div className="text-lg font-bold text-amber-700">
-                  {todayRecords.filter((r) => r.status === 'S').length}
+                  {todayRecords.filter((r) => r.status === 'Sakit').length}
                 </div>
                 <div className="text-[10px] text-amber-600 font-semibold">Sakit</div>
               </div>
               <div className="p-2 bg-sky-50 rounded-lg border border-sky-100">
                 <div className="text-lg font-bold text-sky-700">
-                  {todayRecords.filter((r) => r.status === 'I').length}
+                  {todayRecords.filter((r) => r.status === 'Izin').length}
                 </div>
                 <div className="text-[10px] text-sky-600 font-semibold">Izin</div>
               </div>
               <div className="p-2 bg-rose-50 rounded-lg border border-rose-100">
                 <div className="text-lg font-bold text-rose-700">
-                  {todayRecords.filter((r) => r.status === 'A').length}
+                  {todayRecords.filter((r) => r.status === 'Alpa').length}
                 </div>
                 <div className="text-[10px] text-rose-600 font-semibold">Alpa</div>
               </div>
@@ -994,8 +1001,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                 </tr>
               ) : (
                 todayRecords.map((r, idx) => {
-                  const student = students.find((s) => s.id === r.studentId);
-                  if (!student) return null;
+                  const student = students.find((s) => s.nisn === r.studentId);
 
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/75 transition-colors">
@@ -1004,33 +1010,33 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                         {r.scannedAt || '--:--'}
                       </td>
                       <td className="p-3 text-center font-mono font-medium text-slate-700">
-                        {student.nisn}
+                        {student?.nisn || '-'}
                       </td>
-                      <td className="p-3 font-semibold text-slate-900">{student.name}</td>
+                      <td className="p-3 font-semibold text-slate-900">{student?.name || `Tidak Ditemukan (ID: ${r.studentId})`}</td>
                       <td className="p-3 text-center font-medium text-slate-600">
-                        Kelas {student.classGrade}
+                        {student ? `Kelas ${student.classGrade}` : '-'}
                       </td>
                       <td className="p-3 text-center">
                         <span
                           className={`inline-flex px-2 py-0.5 rounded text-[11px] font-bold uppercase ${
-                            r.status === 'H'
+                            r.status === 'Hadir'
                               ? 'bg-emerald-100 text-emerald-800'
-                              : r.status === 'T'
+                              : r.status === 'Terlambat'
                               ? 'bg-orange-100 text-orange-800'
-                              : r.status === 'S'
+                              : r.status === 'Sakit'
                               ? 'bg-amber-100 text-amber-800'
-                              : r.status === 'I'
+                              : r.status === 'Izin'
                               ? 'bg-sky-100 text-sky-800'
                               : 'bg-rose-100 text-rose-800'
                           }`}
                         >
-                          {r.status === 'H'
+                          {r.status === 'Hadir'
                             ? 'Hadir'
-                            : r.status === 'T'
+                            : r.status === 'Terlambat'
                             ? 'Terlambat'
-                            : r.status === 'S'
+                            : r.status === 'Sakit'
                             ? 'Sakit'
-                            : r.status === 'I'
+                            : r.status === 'Izin'
                             ? 'Izin'
                             : 'Alpa'}
                         </span>
@@ -1043,13 +1049,13 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                           onClick={() => {
                             setRecordToDelete({
                               id: r.id,
-                              studentName: student.name,
-                              studentId: student.id,
+                              studentName: student?.name || `ID: ${r.studentId}`,
+                              studentId: r.studentId,
                               date: r.date,
                             });
                           }}
                           className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-md transition-colors cursor-pointer"
-                          title={`Hapus presensi untuk ${student.name}`}
+                          title={`Hapus presensi untuk ${student?.name || r.studentId}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>Hapus</span>

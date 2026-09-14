@@ -6,6 +6,7 @@ interface StudentQRCodeProps {
   size?: number;
   className?: string;
   includeMargin?: boolean;
+  margin?: number;
 }
 
 export const StudentQRCode: React.FC<StudentQRCodeProps> = ({
@@ -13,6 +14,7 @@ export const StudentQRCode: React.FC<StudentQRCodeProps> = ({
   size = 128,
   className = '',
   includeMargin = true,
+  margin,
 }) => {
   const [dataUrl, setDataUrl] = useState<string>('');
 
@@ -22,10 +24,12 @@ export const StudentQRCode: React.FC<StudentQRCodeProps> = ({
       return;
     }
 
+    const calculatedMargin = margin !== undefined ? margin : (includeMargin ? 1 : 0);
+
     let isMounted = true;
     QRCode.toDataURL(value, {
       width: size,
-      margin: includeMargin ? 2 : 0,
+      margin: calculatedMargin,
       color: {
         dark: '#000000',
         light: '#ffffff',

@@ -73,20 +73,20 @@ export function generateInitialAttendance(): AttendanceRecord[] {
     if (INITIAL_HOLIDAYS.some(h => h.date === dateStr)) continue;
 
     class4Students.forEach((student, idx) => {
-      let status: 'H' | 'I' | 'S' | 'A' = 'H';
+      let status: 'Hadir' | 'Izin' | 'Sakit' | 'Alpa' = 'Hadir';
       // Add realistic slight variation for certain students
-      if (idx === 2 && (day === 3 || day === 4)) status = 'S';
-      else if (idx === 6 && day === 5) status = 'I';
-      else if (idx === 9 && day === 8) status = 'A';
-      else if (idx === 11 && day === 2) status = 'I';
-      else if (idx === 13 && day === 7) status = 'S';
+      if (idx === 2 && (day === 3 || day === 4)) status = 'Sakit';
+      else if (idx === 6 && day === 5) status = 'Izin';
+      else if (idx === 9 && day === 8) status = 'Alpa';
+      else if (idx === 11 && day === 2) status = 'Izin';
+      else if (idx === 13 && day === 7) status = 'Sakit';
 
       records.push({
         id: `att-${student.id}-${dateStr}`,
         studentId: student.id,
         date: dateStr,
         status,
-        notes: status !== 'H' ? (status === 'S' ? 'Demam' : status === 'I' ? 'Acara keluarga' : 'Tanpa keterangan') : undefined,
+        scannedAt: '07:00:00'
       });
     });
   }

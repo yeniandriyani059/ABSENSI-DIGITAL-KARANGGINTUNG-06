@@ -1,29 +1,44 @@
-export type AttendanceStatus = 'H' | 'I' | 'S' | 'A' | 'T'; // H: Hadir, I: Izin, S: Sakit, A: Alpa, T: Terlambat
+export type AttendanceStatus = 'Hadir' | 'Izin' | 'Sakit' | 'Alpa' | 'Terlambat';
+
+export interface DbStudent {
+  id: any;
+  nisn: string;
+  nama: string;
+  kelas: string;
+  // Supabase might have these, but user didn't mention them explicitly.
+  gender?: 'L' | 'P';
+  qr_code?: string;
+  photo_url?: string;
+}
+
+export interface DbAttendance {
+  id: any;
+  nisn_siswa: string;
+  created_at: string; // ISO string
+  status: AttendanceStatus;
+}
 
 export interface Student {
-  id: string;
+  id: any;
   nisn: string;
   name: string;
-  gender: 'L' | 'P';
-  classGrade: string; // e.g. "1", "2", "3", "4", "5", "6"
-  qrCode?: string; // QR code data or custom identifier (defaults to NISN)
-  photoUrl?: string; // Student portrait/pasfoto base64 or URL
+  gender?: 'L' | 'P';
+  classGrade: string; 
+  qrCode?: string;
+  photoUrl?: string;
 }
 
 export interface AttendanceRecord {
-  id: string;
+  id: any;
   studentId: string;
   date: string; // YYYY-MM-DD
   status: AttendanceStatus;
-  notes?: string;
-  scannedAt?: string; // HH:mm:ss format when recorded via barcode scanner
-  checkInTime?: string; // HH:mm:ss format
-  checkOutTime?: string; // HH:mm:ss format
+  scannedAt: string; // HH:mm:ss
 }
 
 export interface Holiday {
-  id: string;
-  date: string; // YYYY-MM-DD
+  id: any;
+  date: string; 
   reason: string;
 }
 
@@ -40,11 +55,11 @@ export interface SchoolProfile {
   semester: string;
   city: string;
   educationAgency?: string;
-  logoUrl?: string; // Base64 or URL
-  checkInTime?: string; // Jam Datang Kelas 3-6 (Default)
-  checkOutTime?: string; // Jam Pulang Kelas 3-6 (Default)
-  checkInTimeLower?: string; // Jam Datang Kelas 1-2
-  checkOutTimeLower?: string; // Jam Pulang Kelas 1-2
+  logoUrl?: string; 
+  checkInTime?: string; 
+  checkOutTime?: string; 
+  checkInTimeLower?: string; 
+  checkOutTimeLower?: string; 
 }
 
 export interface StudentMonthlyStat {

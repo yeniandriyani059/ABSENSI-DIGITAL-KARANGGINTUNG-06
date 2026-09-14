@@ -7,26 +7,42 @@
 }
 
 @media print {
-  body {
-    background: #fff !important;
-    color: #000 !important;
+  html, body {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  .no-print {
+  /* Universal hide for all interactive UI, navbars, headers, buttons */
+  .no-print,
+  button,
+  input,
+  select,
+  nav,
+  header,
+  aside,
+  footer,
+  .print\:hidden {
     display: none !important;
-  }
-
-  .print-only {
-    display: block !important;
   }
 
   /* When printing monthly summary */
-  body.print-mode-monthly .app-container {
+  body.print-mode-monthly .app-container,
+  body.print-mode-monthly #print-cards-container {
     display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
   }
 
   body.print-mode-monthly #print-report-container {
     display: block !important;
+    visibility: visible !important;
     position: static !important;
     width: 100% !important;
     padding: 0 !important;
@@ -34,21 +50,46 @@
   }
 
   /* When printing student ID cards */
-  body.print-mode-cards .app-container {
+  body.print-mode-cards .app-container,
+  body.print-mode-cards #print-report-container {
     display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
   }
 
   body.print-mode-cards #print-cards-container {
     display: block !important;
+    visibility: visible !important;
     position: static !important;
     width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
   }
 
+  .print-card-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
+    display: block !important;
+  }
+
+  .print-card-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .card-print-box {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
+  }
+
   @page {
     size: A4 portrait;
-    margin: 1.2cm 1cm 1.2cm 1cm;
+    margin: 8mm 7mm;
   }
 }
 
@@ -67,3 +108,4 @@ body.print-mode-monthly #print-report-container {
 body.print-mode-cards #print-cards-container {
   display: block;
 }
+

@@ -305,44 +305,44 @@ export async function downloadStudentCardCanvas(
   ctx.font = 'bold 16px sans-serif';
   ctx.fillText(`${school.academicYear} \u2022 ${school.schoolName}`, infoX, currentY);
 
-  // 6. Right Column: QR Code Box
-  const qrBoxW = 260;
-  const qrBoxH = 300;
-  const qrBoxX = width - qrBoxW - 45;
-  const qrBoxY = headerHeight + 25;
+  // 6. Right Column: QR Code Box (Enlarged & High Visibility)
+  const qrBoxW = 285;
+  const qrBoxH = 345;
+  const qrBoxX = width - qrBoxW - 40;
+  const qrBoxY = headerHeight + 18;
 
   // White Card for QR Code
   ctx.save();
-  roundRect(ctx, qrBoxX, qrBoxY, qrBoxW, qrBoxH, 18);
+  roundRect(ctx, qrBoxX, qrBoxY, qrBoxW, qrBoxH, 20);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#6ee7b7';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#34d399';
   ctx.stroke();
 
-  // Generate QR Code data URL
+  // Generate QR Code data URL with margin: 0 to fill the card
   const qrData = student.qrCode || student.nisn;
   const qrDataUrl = await QRCode.toDataURL(qrData, {
-    margin: 1,
-    width: 360,
+    margin: 0,
+    width: 400,
     errorCorrectionLevel: 'M',
   });
   const qrImg = await loadImage(qrDataUrl);
 
-  const qrSize = 220;
+  const qrSize = 255;
   const qrDrawX = qrBoxX + (qrBoxW - qrSize) / 2;
-  const qrDrawY = qrBoxY + 16;
+  const qrDrawY = qrBoxY + 15;
   ctx.drawImage(qrImg, qrDrawX, qrDrawY, qrSize, qrSize);
 
   // QR Label
   ctx.fillStyle = '#065f46';
-  ctx.font = 'bold 14px sans-serif';
+  ctx.font = 'bold 15px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('SCAN PRESENSI', qrBoxX + qrBoxW / 2, qrDrawY + qrSize + 25);
+  ctx.fillText('SCAN PRESENSI KTS', qrBoxX + qrBoxW / 2, qrDrawY + qrSize + 28);
 
   ctx.fillStyle = '#047857';
-  ctx.font = 'bold 12px monospace';
-  ctx.fillText(qrData, qrBoxX + qrBoxW / 2, qrDrawY + qrSize + 45);
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText(qrData, qrBoxX + qrBoxW / 2, qrDrawY + qrSize + 52);
   ctx.restore();
 
   // 7. Footer Bar
