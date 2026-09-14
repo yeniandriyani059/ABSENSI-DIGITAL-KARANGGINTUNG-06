@@ -40,6 +40,12 @@ import { BarcodeScanner } from './components/BarcodeScanner';
 import { LoginPortal } from './components/LoginPortal';
 import { AccountProfileModal } from './components/AccountProfileModal';
 import { exportElementToPdf } from './utils/pdfExport';
+import {
+  fetchSchoolProfileFromSupabase,
+  saveSchoolProfileToSupabase,
+  subscribeSchoolProfileRealtime,
+  getCachedSchoolProfile,
+} from './utils/schoolProfileService';
 
 type TabType =
   | 'daily'
@@ -93,13 +99,43 @@ export default function App() {
     }
   }, []);
 
+  // School Profile state & Supabase Realtime synchronization
+  const [holidays, setHolidays] = useState<Holiday[]>(INITIAL_HOLIDAYS);
+  const [school, setSchool] = useState<SchoolProfile>(() => getCachedSchoolProfile() || INITIAL_SCHOOL_PROFILE);
+  const [schoolRowId, setSchoolRowId] = useState<any>(1);
+  const [isSchoolTableReady, setIsSchoolTableReady] = useState<boolean>(true);
+  const [schoolSyncError, setSchoolSyncError] = useState<string | null>(null);
+
+  const fetchSchoolProfile = useCallback(async () => {
+    try {
+      const res = await fetchSchoolProfileFromSupabase();
+      setSchool(res.profile);
+      setSchoolRowId(res.rowId);
+      setIsSchoolTableReady(res.tableExists);
+      if (res.error && !res.tableExists) {
+        setSchoolSyncError(res.error);
+      } else {
+        setSchoolSyncError(null);
+      }
+    } catch (err: any) {
+      console.error('Error fetching school profile from Supabase:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStudentsAndRecords();
-  }, [fetchStudentsAndRecords]);
+    fetchSchoolProfile();
 
-  // Settings & local logic (keep these in state to avoid breakage, but removed localStorage persistence per instructions)
-  const [holidays, setHolidays] = useState<Holiday[]>(INITIAL_HOLIDAYS);
-  const [school, setSchool] = useState<SchoolProfile>(INITIAL_SCHOOL_PROFILE);
+    // Berlangganan (Realtime Subscription) perubahan tabel profil_sekolah dari Supabase
+    const unsubscribe = subscribeSchoolProfileRealtime((updatedProfile) => {
+      setSchool(updatedProfile);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [fetchStudentsAndRecords, fetchSchoolProfile]);
+
   const [account, setAccount] = useState<AdminAccount>({
     username: 'SuperAdmin',
     password: 'Slemped06',
@@ -326,10 +362,28 @@ export default function App() {
     fetchStudentsAndRecords();
   }, [fetchStudentsAndRecords]);
 
-  // Handlers for School Profile
-  const handleUpdateSchool = useCallback((profile: SchoolProfile) => {
-    setSchool(profile);
-  }, []);
+  // Handlers for School Profile with Supabase Persistence
+  const handleUpdateSchool = useCallback(
+    async (profile: SchoolProfile) => {
+      setSchool(profile);
+      const res = await saveSchoolProfileToSupabase(profile, schoolRowId);
+      if (res.success) {
+        setSchool(res.profile);
+        setIsSchoolTableReady(true);
+        setSchoolSyncError(null);
+        return { success: true };
+      } else {
+        setIsSchoolTableReady(res.tableExists ?? false);
+        setSchoolSyncError(res.error || null);
+        return {
+          success: false,
+          error: res.error,
+          tableExists: res.tableExists,
+        };
+      }
+    },
+    [schoolRowId]
+  );
 
   // Backup & Restore
   const handleExportBackup = useCallback(() => {
@@ -880,6 +934,9 @@ export default function App() {
               onExportBackup={handleExportBackup}
               onImportBackup={handleImportBackup}
               onResetData={handleResetData}
+              isTableReady={isSchoolTableReady}
+              syncError={schoolSyncError}
+              onRefreshSchool={fetchSchoolProfile}
             />
           )}
         </main>

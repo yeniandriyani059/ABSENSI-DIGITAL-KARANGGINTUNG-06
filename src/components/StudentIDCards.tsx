@@ -605,17 +605,17 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                   </div>
 
                   {/* QR Code container (Enlarged & high-density) */}
-                  <div className="bg-white p-1.5 rounded-xl border-2 border-emerald-300 shadow-md flex flex-col items-center justify-center shrink-0 w-24">
-                    <div className="w-full flex items-center justify-center bg-white rounded-lg overflow-hidden">
+                  <div className="bg-white p-1 rounded-xl border-2 border-emerald-300 shadow-md flex flex-col items-center justify-center shrink-0 w-28">
+                    <div className="w-24 h-24 flex items-center justify-center bg-white rounded-lg overflow-hidden">
                       <StudentQRCode
                         value={student.qrCode || student.nisn}
-                        size={84}
+                        size={96}
                         margin={0}
                         includeMargin={false}
-                        className="w-20 h-20 aspect-square"
+                        className="w-full h-full object-contain"
                       />
                     </div>
-                    <span className="text-[8px] font-extrabold font-mono text-slate-800 mt-1 tracking-tight">
+                    <span className="text-[8.5px] font-extrabold font-mono text-slate-800 mt-0.5 tracking-tight">
                       SCAN KTS
                     </span>
                   </div>
@@ -783,21 +783,21 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
 
                 {/* QR Code Container (Enlarged to fill white area) */}
                 <div className="col-span-5 flex flex-col items-center justify-center text-center pl-1">
-                  <div className="bg-white p-2 rounded-2xl border-2 border-emerald-300 shadow-xl flex flex-col items-center justify-center w-full max-w-[170px]">
+                  <div className="bg-white p-2 rounded-2xl border-2 border-emerald-300 shadow-xl flex flex-col items-center justify-center w-full max-w-[190px]">
                     {codeType === 'qr' ? (
-                      <div className="w-full flex items-center justify-center bg-white rounded-xl overflow-hidden">
+                      <div className="w-40 h-40 flex items-center justify-center bg-white rounded-xl overflow-hidden">
                         <StudentQRCode
                           value={selectedStudentForModal.qrCode || selectedStudentForModal.nisn}
-                          size={144}
+                          size={160}
                           margin={0}
                           includeMargin={false}
-                          className="w-34 h-34 aspect-square"
+                          className="w-full h-full object-contain"
                         />
                       </div>
                     ) : (
-                      <StudentBarcode value={selectedStudentForModal.nisn} height={44} />
+                      <StudentBarcode value={selectedStudentForModal.nisn} height={48} />
                     )}
-                    <span className="text-[9px] font-extrabold font-mono text-slate-800 mt-1.5 tracking-tight">
+                    <span className="text-[9.5px] font-extrabold font-mono text-slate-800 mt-1.5 tracking-tight">
                       SCAN PRESENSI KTS
                     </span>
                   </div>
@@ -1106,21 +1106,21 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
 
                           {/* QR Code (Enlarged & High-Density) */}
                           <div className="col-span-4 flex flex-col items-center justify-center text-center">
-                            <div className="p-1 bg-white border border-slate-800 rounded-md inline-flex flex-col items-center justify-center shadow-2xs">
+                            <div className="p-0.5 bg-white border border-slate-900 rounded-md inline-flex flex-col items-center justify-center shadow-2xs w-[76px]">
                               {codeType === 'qr' ? (
-                                <div className="w-full flex items-center justify-center bg-white overflow-hidden">
+                                <div className="w-[72px] h-[72px] flex items-center justify-center bg-white overflow-hidden">
                                   <StudentQRCode
                                     value={student.qrCode || student.nisn}
-                                    size={68}
+                                    size={84}
                                     margin={0}
                                     includeMargin={false}
-                                    className="w-16 h-16 aspect-square"
+                                    className="w-full h-full object-contain"
                                   />
                                 </div>
                               ) : (
-                                <StudentBarcode value={student.nisn} height={26} />
+                                <StudentBarcode value={student.nisn} height={28} />
                               )}
-                              <span className="text-[6.5px] font-extrabold font-mono text-slate-900 mt-0.5 tracking-tight">
+                              <span className="text-[6.5px] font-extrabold font-mono text-slate-950 mt-0.5 tracking-tight leading-none">
                                 SCAN KTS
                               </span>
                             </div>

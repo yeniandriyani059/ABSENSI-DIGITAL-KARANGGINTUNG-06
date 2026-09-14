@@ -13,7 +13,7 @@ export const StudentQRCode: React.FC<StudentQRCodeProps> = ({
   value,
   size = 128,
   className = '',
-  includeMargin = true,
+  includeMargin = false,
   margin,
 }) => {
   const [dataUrl, setDataUrl] = useState<string>('');
@@ -27,8 +27,11 @@ export const StudentQRCode: React.FC<StudentQRCodeProps> = ({
     const calculatedMargin = margin !== undefined ? margin : (includeMargin ? 1 : 0);
 
     let isMounted = true;
+    // Gunakan resolusi 2x (minimal 200px) agar sangat tajam dan mudah dipindai scanner/kamera jarak jauh
+    const renderWidth = Math.max(size * 2, 200);
+
     QRCode.toDataURL(value, {
-      width: size,
+      width: renderWidth,
       margin: calculatedMargin,
       color: {
         dark: '#000000',
@@ -48,7 +51,7 @@ export const StudentQRCode: React.FC<StudentQRCodeProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [value, size, includeMargin]);
+  }, [value, size, includeMargin, margin]);
 
   if (!dataUrl) {
     return (
@@ -67,8 +70,9 @@ export const StudentQRCode: React.FC<StudentQRCodeProps> = ({
       alt={`QR Code: ${value}`}
       width={size}
       height={size}
-      className={`inline-block ${className}`}
+      className={`block object-contain ${className}`}
       loading="lazy"
     />
   );
 };
+
