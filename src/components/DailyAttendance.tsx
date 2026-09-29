@@ -119,12 +119,13 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
   const handleSave = () => {
     const newRecords: AttendanceRecord[] = classStudents.map((s) => {
       const cur = localStatuses[s.id] || { status: 'Hadir' };
+      const existingRec = existingMap.get(s.nisn);
       return {
-        id: `att-${s.nisn}-${currentDate}`,
+        id: existingRec?.id || `att-${s.nisn}-${currentDate}`,
         studentId: s.nisn,
         date: currentDate,
         status: cur.status,
-        scannedAt: ''
+        scannedAt: existingRec?.scannedAt || '',
       };
     });
 
