@@ -12,7 +12,15 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { Student, AttendanceRecord, Holiday, SchoolProfile, StudentMonthlyStat } from '../types';
+import {
+  Student,
+  AttendanceRecord,
+  Holiday,
+  SchoolProfile,
+  StudentMonthlyStat,
+  StudentEwsIndicator,
+} from '../types';
+import { EwsStatusBadge } from './EwsStatusBadge';
 
 interface MonthlySummaryProps {
   students: Student[];
@@ -23,6 +31,9 @@ interface MonthlySummaryProps {
   onSelectClass: (c: string) => void;
   onPrintReport: (stats: StudentMonthlyStat[], monthName: string, year: number, effectiveDays: number) => void;
   onExportPdfReport?: (stats: StudentMonthlyStat[], monthName: string, year: number, effectiveDays: number) => void;
+  ewsIndicatorsMap?: Map<string, StudentEwsIndicator>;
+  onPrintBkLetter?: (indicator: StudentEwsIndicator) => void;
+  onSendWaWarning?: (indicator: StudentEwsIndicator) => void;
 }
 
 const MONTH_NAMES = [
@@ -39,6 +50,9 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
   onSelectClass,
   onPrintReport,
   onExportPdfReport,
+  ewsIndicatorsMap,
+  onPrintBkLetter,
+  onSendWaWarning,
 }) => {
   const today = new Date();
   const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth()); // 0-indexed
@@ -491,7 +505,15 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
                         {item.student.nisn}
                       </td>
                       <td className="p-3 font-medium text-slate-800">
-                        {item.student.name}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{item.student.name}</span>
+                          <EwsStatusBadge
+                            indicator={ewsIndicatorsMap?.get(item.student.nisn)}
+                            compact
+                            onPrintBkLetter={onPrintBkLetter}
+                            onSendWaWarning={onSendWaWarning}
+                          />
+                        </div>
                       </td>
                       <td className="p-3 text-center text-slate-600 text-xs font-semibold">
                         {item.student.gender}

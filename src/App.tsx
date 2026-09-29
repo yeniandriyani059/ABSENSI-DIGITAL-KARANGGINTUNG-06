@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './supabaseClient';
 import {
   Clock,
@@ -30,6 +30,9 @@ import {
   AdminAccount,
   DbStudent,
   DbAttendance,
+  WaLog,
+  EwsAlert,
+  StudentEwsIndicator,
 } from './types';
 import {
   INITIAL_HOLIDAYS,
@@ -46,6 +49,7 @@ import { StudentIDCards } from './components/StudentIDCards';
 import { BarcodeScanner } from './components/BarcodeScanner';
 import { LoginPortal } from './components/LoginPortal';
 import { AccountProfileModal } from './components/AccountProfileModal';
+import { TeacherAlertCenter } from './components/TeacherAlertCenter';
 import { exportElementToPdf } from './utils/pdfExport';
 import {
   fetchSchoolProfileFromSupabase,
@@ -64,6 +68,18 @@ import {
   setCachedRecords,
   syncOfflineQueueToSupabase,
 } from './utils/offlineSync';
+import {
+  CRON_LAST_RUN_DATE_KEY,
+  getLocalWaLogs,
+  getLocalEwsAlerts,
+  fetchWaLogsAndEwsAlertsFromSupabase,
+  runCronJob0715UnrecordedStudents,
+  handleIncomingWhatsappWebhook,
+  updateEwsAlertStatus,
+  createWaLogEntry,
+  recordManualClickToChatWaLog,
+  evaluateStudentEwsIndicators,
+} from './utils/ewsAndWaService';
 
 type TabType =
   | 'daily'
@@ -275,6 +291,24 @@ export default function App() {
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const [scanInitialValue, setScanInitialValue] = useState<string>('');
 
+  // Closed-Loop WhatsApp & Early Warning System (EWS) States
+  const [waLogs, setWaLogs] = useState<WaLog[]>(() => getLocalWaLogs());
+  const [ewsAlerts, setEwsAlerts] = useState<EwsAlert[]>(() => getLocalEwsAlerts());
+  const [bkLetterTarget, setBkLetterTarget] = useState<StudentEwsIndicator | null>(null);
+
+  // Load wa_logs & ews_alerts from Supabase / local cache on startup
+  useEffect(() => {
+    fetchWaLogsAndEwsAlertsFromSupabase().then(({ waLogs: w, ewsAlerts: e }) => {
+      setWaLogs(w);
+      setEwsAlerts(e);
+    });
+  }, []);
+
+  // Evaluasi otomatis indikator EWS setiap siswa berdasarkan rekaman presensi
+  const ewsIndicatorsMap = useMemo(() => {
+    return evaluateStudentEwsIndicators(students, records, ewsAlerts);
+  }, [students, records, ewsAlerts]);
+
   // Close desktop "Lainnya" dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -479,6 +513,166 @@ export default function App() {
     setScanInitialValue(nisn);
     setActiveTab('scan');
   }, []);
+
+  // ===========================================================================
+  // HANDLERS CLOSED-LOOP WHATSAPP GATEWAY (CRON 07.15 WIB & WEBHOOK) & EWS
+  // ===========================================================================
+  const getTodayStrWib = useCallback(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate()
+    ).padStart(2, '0')}`;
+  }, []);
+
+  const handleTriggerCron0715 = useCallback(async () => {
+    const todayStr = getTodayStrWib();
+    const res = await runCronJob0715UnrecordedStudents({
+      students,
+      records,
+      holidays,
+      dateStr: todayStr,
+    });
+    setWaLogs(getLocalWaLogs());
+
+    if (res.skippedReason) {
+      showToast(`Cron 07.15 WIB dilewati: ${res.skippedReason}`, 'offline');
+    } else if (res.sentLogs.length === 0) {
+      showToast('Seluruh siswa sudah tercatat presensi hari ini.', 'success');
+    } else {
+      showToast(
+        `Cron 07.15 WIB: Mengirim ${res.sentLogs.length} pesan WA otomatis ke orang tua siswa yang belum tercatat.`,
+        'success'
+      );
+    }
+  }, [getTodayStrWib, students, records, holidays, showToast]);
+
+  // Penjadwal Otomatis (Cron Job) setiap pukul 07.15 WIB
+  useEffect(() => {
+    const checkCronTime = () => {
+      if (students.length === 0) return;
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const todayStr = getTodayStrWib();
+
+      // Jika sudah masuk pukul 07:15 ke atas pada hari ini dan belum dijalankan otomatis
+      if (hours === 7 && minutes >= 15) {
+        const lastRun = localStorage.getItem(CRON_LAST_RUN_DATE_KEY);
+        if (lastRun !== todayStr) {
+          handleTriggerCron0715();
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(checkCronTime, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [students.length, getTodayStrWib, handleTriggerCron0715]);
+
+  // Penangan Webhook Pesan Masuk WA (Balasan 1/2/3/4 dari Orang Tua)
+  const handleIncomingWaReply = useCallback(
+    async (student: Student, replyText: string) => {
+      const todayStr = getTodayStrWib();
+      try {
+        const res = await handleIncomingWhatsappWebhook({
+          student,
+          rawReply: replyText,
+          dateStr: todayStr,
+        });
+
+        setWaLogs(res.updatedWaLogs);
+        setEwsAlerts(getLocalEwsAlerts());
+
+        const nowTime = new Date().toLocaleTimeString('en-GB', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+
+        // Update status presensi hari ini secara otomatis sesuai balasan WA orang tua
+        await handleRecordSingleAttendance({
+          id: `att-${student.nisn}-${todayStr}`,
+          studentId: student.nisn,
+          date: todayStr,
+          status: res.mappedStatus,
+          scannedAt: nowTime,
+        });
+
+        if (res.triggeredRedAlert) {
+          showToast(
+            `ALERT DARURAT: Orang tua ${student.name} menyatakan "Sudah Berangkat" namun belum tercatat di sekolah!`,
+            'offline'
+          );
+        } else {
+          showToast(
+            `Presensi ${student.name} diperbarui menjadi "${res.mappedStatus}" (sipena_presensi & wa_logs diupdate, ews_alerts direset).`,
+            'success'
+          );
+        }
+      } catch (err: any) {
+        showToast(err?.message || 'Gagal memproses balasan WhatsApp.', 'offline');
+      }
+    },
+    [getTodayStrWib, handleRecordSingleAttendance, showToast]
+  );
+
+  // Tombol Cepat Guru: [Tandai Hadir Terlambat] dari Kartu Alert Merah
+  const handleMarkLatePresentFromAlert = useCallback(
+    async (studentNisn: string, alertId?: string) => {
+      const todayStr = getTodayStrWib();
+      const nowTime = new Date().toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      await handleRecordSingleAttendance({
+        id: `att-${studentNisn}-${todayStr}`,
+        studentId: studentNisn,
+        date: todayStr,
+        status: 'Terlambat',
+        scannedAt: nowTime,
+      });
+
+      if (alertId) {
+        const updated = await updateEwsAlertStatus(alertId, 'SELESAI');
+        setEwsAlerts(updated);
+      }
+      showToast('Siswa berhasil ditandai Hadir Terlambat & alert diselesaikan.', 'success');
+    },
+    [getTodayStrWib, handleRecordSingleAttendance, showToast]
+  );
+
+  // Tombol Cepat Guru: [Selesai Ditindaklanjuti]
+  const handleResolveEwsAlert = useCallback(
+    async (alertId: string) => {
+      const updated = await updateEwsAlertStatus(alertId, 'SELESAI');
+      setEwsAlerts(updated);
+      showToast('Status tindak lanjut alert telah ditandai Selesai.', 'success');
+    },
+    [showToast]
+  );
+
+  // Catat log WA manual ketika Guru mengklik tombol "Buka WA" (Click-to-Chat Gratis)
+  const handleOpenManualWaChat = useCallback(async (student: Student) => {
+    const updatedLogs = await recordManualClickToChatWaLog(student);
+    setWaLogs(updatedLogs);
+  }, []);
+
+  // Catat pengiriman notifikasi peringatan EWS ke wa_logs
+  const handleSendEwsWaNotification = useCallback(
+    async (indicator: StudentEwsIndicator, reasonText: string) => {
+      await createWaLogEntry({
+        siswa_id: indicator.studentId,
+        student_name: indicator.studentName,
+        class_grade: indicator.classGrade,
+        phone_number: indicator.parentPhone,
+        message_sent: `Notifikasi EWS (${reasonText}) kepada Orang Tua/Wali ${indicator.studentName}`,
+        status_reply: 'TERKIRIM (PERINGATAN EWS)',
+      });
+      setWaLogs(getLocalWaLogs());
+    },
+    []
+  );
 
   // Handlers for Students
   const handleAddStudent = useCallback(async (s: Omit<Student, 'id'>) => {
@@ -1231,6 +1425,26 @@ export default function App() {
 
         {/* Content Area */}
         <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex-1">
+          {/* Pusat Notifikasi & Alert Guru (Closed-Loop WhatsApp & Early Warning System) */}
+          <TeacherAlertCenter
+            students={students}
+            records={records}
+            holidays={holidays}
+            school={school}
+            selectedClass={selectedClass}
+            waLogs={waLogs}
+            ewsAlerts={ewsAlerts}
+            ewsIndicatorsMap={ewsIndicatorsMap}
+            onTriggerCron0715={handleTriggerCron0715}
+            onIncomingWaReply={handleIncomingWaReply}
+            onMarkLatePresent={handleMarkLatePresentFromAlert}
+            onResolveEwsAlert={handleResolveEwsAlert}
+            onSendEwsWaNotification={handleSendEwsWaNotification}
+            onOpenManualWaChat={handleOpenManualWaChat}
+            bkLetterTarget={bkLetterTarget}
+            onSelectBkLetterTarget={setBkLetterTarget}
+          />
+
           {activeTab === 'daily' && (
             <DailyAttendance
               students={students}
@@ -1241,6 +1455,12 @@ export default function App() {
               onSelectClass={setSelectedClass}
               onSaveAttendance={handleSaveAttendance}
               onOpenScanner={() => setActiveTab('scan')}
+              ewsIndicatorsMap={ewsIndicatorsMap}
+              onPrintBkLetter={(ind) => setBkLetterTarget(ind)}
+              onSendWaWarning={(ind) =>
+                handleSendEwsWaNotification(ind, ind.badges[0]?.fullTitle || 'Peringatan EWS')
+              }
+              onOpenManualWaChat={handleOpenManualWaChat}
             />
           )}
 
@@ -1277,6 +1497,11 @@ export default function App() {
               onSelectClass={setSelectedClass}
               onPrintReport={handlePrintReport}
               onExportPdfReport={handleExportPdfReport}
+              ewsIndicatorsMap={ewsIndicatorsMap}
+              onPrintBkLetter={(ind) => setBkLetterTarget(ind)}
+              onSendWaWarning={(ind) =>
+                handleSendEwsWaNotification(ind, ind.badges[0]?.fullTitle || 'Peringatan EWS')
+              }
             />
           )}
 
@@ -1296,6 +1521,11 @@ export default function App() {
               onUpdateStudent={handleUpdateStudent}
               onDeleteStudent={handleDeleteStudent}
               onRemoveDuplicates={handleRemoveDuplicateStudents}
+              ewsIndicatorsMap={ewsIndicatorsMap}
+              onPrintBkLetter={(ind) => setBkLetterTarget(ind)}
+              onSendWaWarning={(ind) =>
+                handleSendEwsWaNotification(ind, ind.badges[0]?.fullTitle || 'Peringatan EWS')
+              }
             />
           )}
 

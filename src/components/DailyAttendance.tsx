@@ -8,8 +8,18 @@ import {
   Save,
   CheckCheck,
   QrCode,
+  MessageCircle,
 } from 'lucide-react';
-import { Student, AttendanceRecord, AttendanceStatus, Holiday, SchoolProfile } from '../types';
+import {
+  Student,
+  AttendanceRecord,
+  AttendanceStatus,
+  Holiday,
+  SchoolProfile,
+  StudentEwsIndicator,
+} from '../types';
+import { EwsStatusBadge } from './EwsStatusBadge';
+import { buildClickToChatWaUrl } from '../utils/ewsAndWaService';
 
 interface DailyAttendanceProps {
   students: Student[];
@@ -20,6 +30,10 @@ interface DailyAttendanceProps {
   onSelectClass: (c: string) => void;
   onSaveAttendance: (records: AttendanceRecord[]) => void;
   onOpenScanner?: () => void;
+  ewsIndicatorsMap?: Map<string, StudentEwsIndicator>;
+  onPrintBkLetter?: (indicator: StudentEwsIndicator) => void;
+  onSendWaWarning?: (indicator: StudentEwsIndicator) => void;
+  onOpenManualWaChat?: (student: Student) => void;
 }
 
 export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
@@ -31,6 +45,10 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
   onSelectClass,
   onSaveAttendance,
   onOpenScanner,
+  ewsIndicatorsMap,
+  onPrintBkLetter,
+  onSendWaWarning,
+  onOpenManualWaChat,
 }) => {
   const getTodayStr = () => {
     const d = new Date();
@@ -305,7 +323,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                 <th className="p-3">Nama Siswa</th>
                 <th className="p-3 text-center w-14">L/P</th>
                 <th className="p-3 text-center w-80">Status Kehadiran</th>
-                <th className="p-3">Waktu Pemindaian (Jika ada)</th>
+                <th className="p-3">Waktu &amp; Konfirmasi WA Ortu</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
@@ -322,6 +340,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                   const existingRecord = records.find(r => r.studentId === student.nisn && r.date === currentDate);
                   let timeString = '';
                   if (existingRecord?.scannedAt) timeString += `${existingRecord.scannedAt}`;
+                  const waClickToChatUrl = buildClickToChatWaUrl(student);
 
                   return (
                     <tr key={student.id} className="hover:bg-slate-50/70 transition-colors">
@@ -330,7 +349,15 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                         {student.nisn}
                       </td>
                       <td className="p-3 font-medium text-slate-800">
-                        {student.name}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{student.name}</span>
+                          <EwsStatusBadge
+                            indicator={ewsIndicatorsMap?.get(student.nisn)}
+                            compact
+                            onPrintBkLetter={onPrintBkLetter}
+                            onSendWaWarning={onSendWaWarning}
+                          />
+                        </div>
                       </td>
                       <td className="p-3 text-center text-slate-500 text-xs font-semibold">
                         {student.gender}
@@ -398,16 +425,34 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
                             A
                           </button>
                         </div>
+                        {cur.status === 'Butuh Tindak Lanjut' && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600 text-white">
+                              WA #4: BUTUH TINDAK LANJUT
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="p-3">
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
                           {timeString ? (
-                            <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 self-start">
+                            <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
                               {timeString}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-slate-400">-</span>
+                            <span className="text-[10px] text-slate-400">Belum scan</span>
                           )}
+                          <a
+                            href={waClickToChatUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => onOpenManualWaChat?.(student)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-semibold transition-colors"
+                            title={`Kirim WA Konfirmasi Kehadiran ke Orang Tua ${student.name} (Click-to-Chat Gratis)`}
+                          >
+                            <MessageCircle className="w-3 h-3 text-emerald-600 shrink-0" />
+                            <span>Buka WA</span>
+                          </a>
                         </div>
                       </td>
                     </tr>

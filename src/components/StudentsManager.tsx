@@ -18,10 +18,18 @@ import {
   Camera,
   Image as ImageIcon,
   User,
+  MessageCircle,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Student } from '../types';
+import { Student, StudentEwsIndicator } from '../types';
 import { StudentQRCode } from './StudentQRCode';
+import { EwsStatusBadge } from './EwsStatusBadge';
+import {
+  getStudentParentPhone,
+  saveParentPhoneForStudent,
+  buildClickToChatWaUrl,
+  formatPhoneForWaLink,
+} from '../utils/ewsAndWaService';
 import {
   downloadStudentTemplate,
   exportStudentsToExcel,
@@ -36,6 +44,9 @@ interface StudentsManagerProps {
   onUpdateStudent: (student: Student) => void;
   onDeleteStudent: (id: string) => void;
   onRemoveDuplicates?: () => void;
+  ewsIndicatorsMap?: Map<string, StudentEwsIndicator>;
+  onPrintBkLetter?: (indicator: StudentEwsIndicator) => void;
+  onSendWaWarning?: (indicator: StudentEwsIndicator) => void;
 }
 
 export const StudentsManager: React.FC<StudentsManagerProps> = ({
@@ -45,6 +56,9 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
   onUpdateStudent,
   onDeleteStudent,
   onRemoveDuplicates,
+  ewsIndicatorsMap,
+  onPrintBkLetter,
+  onSendWaWarning,
 }) => {
   const [selectedClass, setSelectedClass] = useState('4');
   const [isAdding, setIsAdding] = useState(false);
@@ -57,6 +71,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
   const [classGrade, setClassGrade] = useState('4');
   const [qrCodeVal, setQrCodeVal] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [parentPhone, setParentPhone] = useState('');
   const [error, setError] = useState('');
   const [qrUploadSuccess, setQrUploadSuccess] = useState('');
 
@@ -102,6 +117,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
     setClassGrade(selectedClass === 'all' ? '4' : selectedClass);
     setQrCodeVal('');
     setPhotoUrl('');
+    setParentPhone('');
     setError('');
     setQrUploadSuccess('');
     setIsAdding(false);
@@ -118,10 +134,11 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
     setEditingId(student.id);
     setNisn(student.nisn);
     setName(student.name);
-    setGender(student.gender);
+    setGender(student.gender || 'L');
     setClassGrade(student.classGrade);
     setQrCodeVal(student.qrCode || student.nisn);
     setPhotoUrl(student.photoUrl || '');
+    setParentPhone(getStudentParentPhone(student));
     setIsAdding(false);
     setError('');
     setQrUploadSuccess('');
@@ -214,6 +231,10 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
     }
 
     const finalQr = qrCodeVal.trim() || nisn.trim();
+    const cleanPhone = parentPhone.trim();
+    if (cleanPhone) {
+      saveParentPhoneForStudent(nisn.trim(), cleanPhone);
+    }
 
     if (editingId) {
       onUpdateStudent({
@@ -224,6 +245,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
         classGrade,
         qrCode: finalQr,
         photoUrl: photoUrl || undefined,
+        parentPhone: cleanPhone || undefined,
       });
     } else {
       onAddStudent({
@@ -233,6 +255,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
         classGrade,
         qrCode: finalQr,
         photoUrl: photoUrl || undefined,
+        parentPhone: cleanPhone || undefined,
       });
     }
 
@@ -480,6 +503,19 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
               </div>
 
               <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  No. WhatsApp Orang Tua / Wali
+                </label>
+                <input
+                  type="text"
+                  placeholder="Contoh: 081234567890"
+                  value={parentPhone}
+                  onChange={(e) => setParentPhone(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
                 <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
                   <span>Isi Nilai QR Code Presensi</span>
                   <span className="text-[10px] text-slate-400 font-normal">Default: NISN</span>
@@ -721,7 +757,30 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
                     </td>
 
                     <td className="p-3 font-semibold text-slate-800">
-                      <div>{s.name}</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span>{s.name}</span>
+                        <EwsStatusBadge
+                          indicator={ewsIndicatorsMap?.get(s.nisn)}
+                          compact
+                          onPrintBkLetter={onPrintBkLetter}
+                          onSendWaWarning={onSendWaWarning}
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                        <span className="text-[10px] font-mono text-slate-500 font-normal">
+                          WA Ortu: {formatPhoneForWaLink(getStudentParentPhone(s))}
+                        </span>
+                        <a
+                          href={buildClickToChatWaUrl(s)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-bold transition-colors"
+                          title={`Buka WhatsApp Click-to-Chat ke Orang Tua ${s.name}`}
+                        >
+                          <MessageCircle className="w-2.5 h-2.5 text-emerald-600" />
+                          <span>Buka WA</span>
+                        </a>
+                      </div>
                       {s.qrCode && s.qrCode !== s.nisn && (
                         <div className="text-[10px] font-mono text-emerald-700 font-normal">
                           Custom QR: {s.qrCode}
