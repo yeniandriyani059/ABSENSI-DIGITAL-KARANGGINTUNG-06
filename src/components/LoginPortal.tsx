@@ -10,6 +10,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { AdminAccount, SchoolProfile } from '../types';
+import { supabase } from '../supabaseClient';
 
 interface LoginPortalProps {
   school: SchoolProfile;
@@ -49,7 +50,7 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({
     return `${name.slice(0, 4)}***@${domain}`;
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -63,18 +64,52 @@ export const LoginPortal: React.FC<LoginPortalProps> = ({
 
     setIsSubmitting(true);
 
-    // Validate with account stored credentials (case-insensitive for username)
-    const validUsername = cleanUser.toLowerCase() === account.username.toLowerCase();
+    // Validate with account stored credentials (case-insensitive for username or recovery email)
+    const validUsername =
+      cleanUser.toLowerCase() === account.username.toLowerCase() ||
+      cleanUser.toLowerCase() === account.recoveryEmail.toLowerCase();
     const validPassword = cleanPass === account.password;
 
-    setTimeout(() => {
-      if (validUsername && validPassword) {
-        onLoginSuccess(account.username, rememberMe);
-      } else {
-        setIsSubmitting(false);
-        setErrorMsg('Username atau Password salah. Periksa kembali huruf besar dan kecil.');
+    if (validUsername && validPassword) {
+      // Coba sinkronkan sesi ke Supabase Auth jika akun terdaftar di Supabase Auth
+      try {
+        const loginEmail = cleanUser.includes('@') ? cleanUser : account.recoveryEmail;
+        if (loginEmail && typeof navigator !== 'undefined' && navigator.onLine) {
+          await supabase.auth.signInWithPassword({
+            email: loginEmail,
+            password: cleanPass,
+          });
+        }
+      } catch {
+        // Abaikan jika user belum terdaftar di tabel auth.users Supabase; sesi lokal tetap disimpan
       }
-    }, 200);
+      onLoginSuccess(account.username, rememberMe);
+      return;
+    }
+
+    // Jika tidak cocok dengan kredensial lokal, coba autentikasi langsung ke Supabase Auth
+    try {
+      if (cleanUser.includes('@') && typeof navigator !== 'undefined' && navigator.onLine) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanUser,
+          password: cleanPass,
+        });
+        if (!error && data.session?.user) {
+          const resolvedName =
+            data.session.user.user_metadata?.username ||
+            data.session.user.user_metadata?.full_name ||
+            data.session.user.email?.split('@')[0] ||
+            account.username;
+          onLoginSuccess(resolvedName, rememberMe);
+          return;
+        }
+      }
+    } catch {
+      // Lanjut ke pesan error di bawah
+    }
+
+    setIsSubmitting(false);
+    setErrorMsg('Username atau Password salah. Periksa kembali huruf besar dan kecil.');
   };
 
   // Handle forgot password verification

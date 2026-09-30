@@ -135,21 +135,51 @@ export async function exportCardsPagesToPdf(
 
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
+    const marginMm = 6;
+    const maxRenderWidth = pageWidth - marginMm * 2;
+    const maxRenderHeight = pageHeight - marginMm * 2;
 
     for (let i = 0; i < sheets.length; i++) {
       const sheet = sheets[i];
-      const imgData = await toPng(sheet, {
-        pixelRatio: 2,
-        backgroundColor: '#ffffff',
-        cacheBust: true,
+      let imgData: string;
+      try {
+        imgData = await toPng(sheet, {
+          pixelRatio: 2.5,
+          backgroundColor: '#ffffff',
+          cacheBust: true,
+        });
+      } catch {
+        // Fallback tanpa cacheBust jika terdapat gambar lintas domain (CORS)
+        imgData = await toPng(sheet, {
+          pixelRatio: 2,
+          backgroundColor: '#ffffff',
+        });
+      }
+
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Gagal memuat halaman kartu untuk PDF.'));
+        img.src = imgData;
       });
 
       if (i > 0) {
         pdf.addPage('a4', 'portrait');
       }
 
-      // Add image filling A4 page nicely
-      pdf.addImage(imgData, 'PNG', 5, 5, pageWidth - 10, pageHeight - 10, undefined, 'FAST');
+      // Hitung ukuran proporsional agar kartu tidak tertarik/gepeng (terutama jika halaman terakhir < 8 kartu)
+      let renderWidth = maxRenderWidth;
+      let renderHeight = (img.height * renderWidth) / img.width;
+
+      if (renderHeight > maxRenderHeight) {
+        renderHeight = maxRenderHeight;
+        renderWidth = (img.width * renderHeight) / img.height;
+      }
+
+      const offsetX = (pageWidth - renderWidth) / 2;
+      const offsetY = marginMm;
+
+      pdf.addImage(imgData, 'PNG', offsetX, offsetY, renderWidth, renderHeight, undefined, 'FAST');
     }
 
     const safeFilename = filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`;

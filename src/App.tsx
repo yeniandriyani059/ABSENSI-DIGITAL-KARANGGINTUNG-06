@@ -91,6 +91,77 @@ type TabType =
   | 'students'
   | 'settings';
 
+const AUTH_SESSION_STORAGE_KEY = 'absensi_auth_session_v1';
+const ADMIN_ACCOUNT_STORAGE_KEY = 'absensi_admin_account_v1';
+
+interface StoredAuthUser {
+  username: string;
+  email?: string;
+  loggedInAt: string;
+}
+
+function getStoredAuthUser(): StoredAuthUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.username === 'string' && parsed.username.trim()) {
+      return parsed;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return null;
+}
+
+function saveStoredAuthUser(username: string, email?: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload: StoredAuthUser = {
+      username,
+      email,
+      loggedInAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function clearStoredAuthUser(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  } catch {
+    // ignore errors
+  }
+}
+
+function getStoredAdminAccount(): AdminAccount {
+  const defaultAccount: AdminAccount = {
+    username: 'SuperAdmin',
+    password: 'Slemped06',
+    recoveryEmail: 'sdn06slemped@gmail.com',
+  };
+  if (typeof window === 'undefined') return defaultAccount;
+  try {
+    const raw = window.localStorage.getItem(ADMIN_ACCOUNT_STORAGE_KEY);
+    if (!raw) return defaultAccount;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.username && parsed.password) {
+      return {
+        username: parsed.username,
+        password: parsed.password,
+        recoveryEmail: parsed.recoveryEmail || defaultAccount.recoveryEmail,
+      };
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return defaultAccount;
+}
+
 export default function App() {
   const [students, setStudents] = useState<Student[]>(() => getCachedStudents() || INITIAL_STUDENTS);
   const [records, setRecords] = useState<AttendanceRecord[]>(() =>
@@ -307,20 +378,112 @@ export default function App() {
     };
   }, [fetchStudentsAndRecords, fetchSchoolProfile]);
 
-  const [account, setAccount] = useState<AdminAccount>({
-    username: 'SuperAdmin',
-    password: 'Slemped06',
-    recoveryEmail: 'sdn06slemped@gmail.com',
-  });
+  const [account, setAccount] = useState<AdminAccount>(() => getStoredAdminAccount());
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  // State penanda pengecekan sesi awal (default: true agar tidak melempar ke Login saat di-refresh)
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [authSession, setAuthSession] = useState<any | null>(null);
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    const stored = getStoredAuthUser();
+    return stored ? stored.username : null;
+  });
   const [activeTab, setActiveTab] = useState<TabType>('daily');
   const [selectedClass, setSelectedClass] = useState<string>('1');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const [scanInitialValue, setScanInitialValue] = useState<string>('');
+
+  // 1 & 2. PENANGANAN INITIAL LOADING, SESSION CHECK (getSession), DAN AUTH STATE LISTENER (onAuthStateChange)
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkInitialSession = async () => {
+      try {
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession();
+
+        if (!isMounted) return;
+
+        if (!error && session?.user) {
+          const resolvedUser =
+            session.user.user_metadata?.username ||
+            session.user.user_metadata?.full_name ||
+            session.user.email?.split('@')[0] ||
+            getStoredAdminAccount().username;
+          setAuthSession(session);
+          setCurrentUser(resolvedUser);
+          saveStoredAuthUser(resolvedUser, session.user.email);
+        } else {
+          // Cek sesi login aktif yang tersimpan di localStorage agar tidak logout saat halaman di-refresh
+          const storedUser = getStoredAuthUser();
+          if (storedUser) {
+            setCurrentUser(storedUser.username);
+          } else {
+            setAuthSession(null);
+            setCurrentUser(null);
+          }
+        }
+      } catch (err) {
+        console.warn('Gagal mengecek sesi awal Supabase:', err);
+        if (!isMounted) return;
+        const storedUser = getStoredAuthUser();
+        if (storedUser) {
+          setCurrentUser(storedUser.username);
+        } else {
+          setAuthSession(null);
+          setCurrentUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuthLoading(false);
+        }
+      }
+    };
+
+    checkInitialSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+
+      if (session?.user) {
+        const resolvedUser =
+          session.user.user_metadata?.username ||
+          session.user.user_metadata?.full_name ||
+          session.user.email?.split('@')[0] ||
+          getStoredAdminAccount().username;
+        setAuthSession(session);
+        setCurrentUser(resolvedUser);
+        saveStoredAuthUser(resolvedUser, session.user.email);
+        setIsAuthLoading(false);
+      } else if (event === 'SIGNED_OUT') {
+        const storedUser = getStoredAuthUser();
+        if (!storedUser) {
+          setAuthSession(null);
+          setCurrentUser(null);
+        }
+        setIsAuthLoading(false);
+      } else if (!session) {
+        const storedUser = getStoredAuthUser();
+        if (storedUser) {
+          setCurrentUser(storedUser.username);
+        } else {
+          setAuthSession(null);
+          setCurrentUser(null);
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Closed-Loop WhatsApp & Early Warning System (EWS) States
   const [waLogs, setWaLogs] = useState<WaLog[]>(() => getLocalWaLogs());
@@ -353,17 +516,41 @@ export default function App() {
 
   const handleUpdateAccount = useCallback((updated: AdminAccount) => {
     setAccount(updated);
-    setCurrentUser(updated.username);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(ADMIN_ACCOUNT_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore quota error
+      }
+    }
+    setCurrentUser((prev) => {
+      if (prev) {
+        saveStoredAuthUser(updated.username, updated.recoveryEmail);
+        return updated.username;
+      }
+      return prev;
+    });
   }, []);
 
-  const handleLoginSuccess = useCallback((user: string, rememberMe: boolean) => {
-    setCurrentUser(user);
-  }, []);
+  const handleLoginSuccess = useCallback(
+    (user: string, _rememberMe: boolean) => {
+      saveStoredAuthUser(user, account.recoveryEmail);
+      setCurrentUser(user);
+    },
+    [account.recoveryEmail]
+  );
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
     setIsProfileModalOpen(false);
     setMobileMenuOpen(false);
+    clearStoredAuthUser();
+    setAuthSession(null);
     setCurrentUser(null);
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Error saat signOut dari Supabase:', err);
+    }
   }, []);
 
   const [printData, setPrintData] = useState<{
@@ -1085,8 +1272,24 @@ export default function App() {
     [selectedClass]
   );
 
-  // Portal Masuk (Authentication Guard)
-  if (!currentUser) {
+  // 1. Penanganan Initial Loading & Session Check:
+  // Jangan melempar pengguna ke halaman Login sebelum pengecekan getSession() selesai (isAuthLoading === false)
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex flex-col justify-center items-center p-4 font-sans text-slate-700">
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-200 px-8 py-6 flex flex-col items-center gap-3 max-w-xs w-full text-center">
+          <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+          <div>
+            <p className="text-sm font-bold text-slate-900">Memeriksa Sesi Login...</p>
+            <p className="text-xs text-slate-500 mt-0.5">{school.schoolName}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Portal Masuk (Authentication Guard) - hanya diarahkan ke Login jika pengecekan selesai dan sesi bernilai null
+  if (!currentUser && !authSession) {
     return (
       <LoginPortal
         school={school}

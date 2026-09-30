@@ -178,11 +178,31 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
   <title>Cetak Lembar Kartu Tanda Siswa (KTS) - ${school.schoolName}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    @page { size: A4 portrait; margin: 8mm 7mm; }
-    body { background-color: #ffffff; color: #000000; margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { size: A4 portrait; margin: 7mm 7mm; }
+    *, *::before, *::after {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+    body {
+      background-color: #ffffff;
+      color: #000000;
+      margin: 0;
+      padding: 0;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
     .print-card-sheet { page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; margin-bottom: 24px; }
     .print-card-sheet:last-child { page-break-after: auto; break-after: auto; margin-bottom: 0; }
-    .card-print-box { page-break-inside: avoid; break-inside: avoid; }
+    .card-print-box, .kts-card-fullcolor {
+      page-break-inside: avoid;
+      break-inside: avoid;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
     @media print {
       .print-card-sheet { margin-bottom: 0 !important; }
       .no-print-toolbar { display: none !important; }
@@ -530,38 +550,52 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
               key={student.id}
               className="bg-white rounded-xl border border-slate-200 shadow-xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between group"
             >
-              {/* Card visual representation */}
-              <div className="p-4 bg-gradient-to-br from-emerald-800 via-emerald-700 to-teal-800 text-white relative">
-                {/* School header */}
-                <div className="flex items-center gap-2.5 pb-2.5 border-b border-emerald-600/60">
-                  <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-emerald-800 shrink-0 font-black text-xs shadow-xs overflow-hidden p-0.5">
+              {/* Card visual representation (Desain Full-Color Hijau Resmi) */}
+              <div
+                className="kts-card-fullcolor bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-800 text-white relative overflow-hidden"
+                style={{
+                  background: 'linear-gradient(135deg, #064e3b 0%, #065f46 55%, #0f766e 100%)',
+                }}
+              >
+                {/* School header (Hijau Tua + Garis Aksen Kuning/Emas) */}
+                <div
+                  className="px-4 py-2.5 flex items-center gap-2.5 border-b-2 border-amber-400"
+                  style={{ backgroundColor: 'rgba(2, 44, 34, 0.72)' }}
+                >
+                  <div className="w-9 h-9 bg-white border-2 border-amber-400 rounded-full flex items-center justify-center text-emerald-800 shrink-0 font-black text-xs shadow-xs overflow-hidden p-0.5">
                     {school.logoUrl ? (
-                      <img src={school.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                      <img
+                        src={school.logoUrl}
+                        alt="Logo"
+                        crossOrigin="anonymous"
+                        className="w-full h-full object-contain"
+                      />
                     ) : (
                       <GraduationCap className="w-5 h-5 text-emerald-700" />
                     )}
                   </div>
-                  <div className="leading-tight overflow-hidden">
+                  <div className="leading-tight overflow-hidden flex-1 min-w-0">
                     <div className="text-[9px] uppercase tracking-wider text-emerald-200 font-semibold truncate">
                       {school.educationAgency || 'PEMERINTAH DAERAH • DINAS PENDIDIKAN'}
                     </div>
                     <div className="text-xs font-extrabold text-white tracking-wide truncate">
                       {school.schoolName.toUpperCase()}
                     </div>
-                    <div className="text-[9px] text-emerald-100/90 font-medium">
+                    <div className="text-[9px] text-amber-300 font-bold tracking-wider">
                       KARTU TANDA SISWA (KTS)
                     </div>
                   </div>
                 </div>
 
                 {/* Student details & QR code */}
-                <div className="pt-3 flex items-start gap-3">
+                <div className="p-4 pt-3 flex items-start gap-3">
                   {/* Photo / Avatar */}
-                  <div className="w-12 h-16 bg-emerald-950/40 rounded-lg border-2 border-emerald-400/60 flex flex-col items-center justify-center text-center p-0.5 shrink-0 overflow-hidden shadow-inner relative mt-1">
+                  <div className="w-13 h-17 bg-emerald-950/60 rounded-lg border-2 border-amber-400/80 flex flex-col items-center justify-center text-center p-0.5 shrink-0 overflow-hidden shadow-inner relative mt-0.5">
                     {student.photoUrl ? (
                       <img
                         src={student.photoUrl}
                         alt={student.name}
+                        crossOrigin="anonymous"
                         className="w-full h-full object-cover rounded-md"
                       />
                     ) : (
@@ -585,10 +619,10 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                   {/* Biodata text */}
                   <div className="flex-1 min-w-0 space-y-1">
                     <div>
-                      <div className="text-[10px] text-emerald-200 uppercase font-semibold">
+                      <div className="text-[9.5px] text-emerald-200 uppercase font-semibold">
                         Nama Lengkap
                       </div>
-                      <div className="text-xs font-bold text-white truncate" title={student.name}>
+                      <div className="text-xs font-extrabold text-white truncate" title={student.name}>
                         {student.name}
                       </div>
                     </div>
@@ -598,7 +632,7 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                         <div className="text-[9px] text-emerald-200 uppercase font-semibold">
                           NISN
                         </div>
-                        <div className="text-xs font-mono font-bold text-white">
+                        <div className="text-xs font-mono font-bold text-amber-300">
                           {student.nisn}
                         </div>
                       </div>
@@ -613,13 +647,13 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1 text-[9px] text-emerald-200 pt-0.5">
-                      <ShieldCheck className="w-3 h-3 text-emerald-300" />
+                      <ShieldCheck className="w-3 h-3 text-amber-300" />
                       <span>Thn Ajaran {school.academicYear}</span>
                     </div>
                   </div>
 
                   {/* QR Code container (Enlarged & high-density) */}
-                  <div className="bg-white p-1 rounded-xl border-2 border-emerald-300 shadow-md flex flex-col items-center justify-center shrink-0 w-28">
+                  <div className="bg-white p-1 rounded-xl border-2 border-amber-400 shadow-md flex flex-col items-center justify-center shrink-0 w-28">
                     <div className="w-24 h-24 flex items-center justify-center bg-white rounded-lg overflow-hidden">
                       <StudentQRCode
                         value={student.qrCode || student.nisn}
@@ -629,7 +663,7 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                         className="w-full h-full object-contain"
                       />
                     </div>
-                    <span className="text-[8.5px] font-extrabold font-mono text-slate-800 mt-0.5 tracking-tight">
+                    <span className="text-[8.5px] font-extrabold font-mono text-emerald-950 mt-0.5 tracking-tight">
                       SCAN KTS
                     </span>
                   </div>
@@ -1009,7 +1043,14 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
       {/* PORTALED PRINT CONTAINER: Attached directly to document.body outside .app-container */}
       {typeof document !== 'undefined' &&
         createPortal(
-          <div id="print-cards-container" className="bg-white">
+          <div
+            id="print-cards-container"
+            className="bg-white"
+            style={{
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact',
+            }}
+          >
             {studentPages.map((pageStudents, pageIdx) => (
               <div
                 key={`page-${pageIdx}`}
@@ -1019,12 +1060,25 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                   breakAfter: pageIdx < studentPages.length - 1 ? 'page' : 'auto',
                   pageBreakInside: 'avoid',
                   breakInside: 'avoid',
+                  WebkitPrintColorAdjust: 'exact',
+                  printColorAdjust: 'exact',
                 }}
               >
                 {/* Sheet Running Header */}
-                <div className="flex items-center justify-between pb-1.5 mb-2 border-b-2 border-slate-900 text-slate-800">
+                <div
+                  className="flex items-center justify-between pb-1.5 mb-2 border-b-2 border-emerald-900 text-slate-800"
+                  style={{ borderBottomColor: '#064e3b' }}
+                >
                   <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded bg-emerald-800 text-white font-black text-[9px] flex items-center justify-center shrink-0">
+                    <div
+                      className="w-5 h-5 rounded text-white font-black text-[9px] flex items-center justify-center shrink-0"
+                      style={{
+                        backgroundColor: '#065f46',
+                        color: '#ffffff',
+                        WebkitPrintColorAdjust: 'exact',
+                        printColorAdjust: 'exact',
+                      }}
+                    >
                       SD
                     </div>
                     <div className="leading-tight">
@@ -1046,137 +1100,271 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                   </div>
                 </div>
 
-                {/* 2-Column x 4-Row Grid for A4 Printing */}
-                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                {/* 2-Column x 4-Row Grid for A4 Printing (Full-Color Green Template) */}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
                   {pageStudents.map((student) => (
                     <div
                       key={student.id}
-                      className="card-print-box relative bg-white border border-dashed border-slate-400 rounded-lg p-1.5 flex flex-col justify-between"
-                      style={{ height: '62mm', boxSizing: 'border-box' }}
+                      className="card-print-box relative border border-dashed border-slate-300 rounded-xl p-1 flex flex-col justify-between"
+                      style={{
+                        height: '62mm',
+                        boxSizing: 'border-box',
+                        pageBreakInside: 'avoid',
+                        breakInside: 'avoid',
+                        WebkitPrintColorAdjust: 'exact',
+                        printColorAdjust: 'exact',
+                      }}
                     >
                       {/* Subtle corner crop marks for clean scissor cutting */}
-                      <div className="absolute -top-[3px] -left-[3px] w-2 h-2 border-t-2 border-l-2 border-slate-600 pointer-events-none" />
-                      <div className="absolute -top-[3px] -right-[3px] w-2 h-2 border-t-2 border-r-2 border-slate-600 pointer-events-none" />
-                      <div className="absolute -bottom-[3px] -left-[3px] w-2 h-2 border-b-2 border-l-2 border-slate-600 pointer-events-none" />
-                      <div className="absolute -bottom-[3px] -right-[3px] w-2 h-2 border-b-2 border-r-2 border-slate-600 pointer-events-none" />
+                      <div className="absolute -top-[2px] -left-[2px] w-2 h-2 border-t-2 border-l-2 border-slate-500 pointer-events-none" />
+                      <div className="absolute -top-[2px] -right-[2px] w-2 h-2 border-t-2 border-r-2 border-slate-500 pointer-events-none" />
+                      <div className="absolute -bottom-[2px] -left-[2px] w-2 h-2 border-b-2 border-l-2 border-slate-500 pointer-events-none" />
+                      <div className="absolute -bottom-[2px] -right-[2px] w-2 h-2 border-b-2 border-r-2 border-slate-500 pointer-events-none" />
 
-                      {/* Card Surface */}
-                      <div className="h-full border border-slate-300 rounded-md p-2 bg-white flex flex-col justify-between overflow-hidden shadow-2xs">
-                        {/* Kop Kartu */}
-                        <div className="flex items-center gap-1.5 pb-1 border-b border-slate-300">
-                          <div className="w-6 h-6 rounded-full bg-emerald-800 flex items-center justify-center text-white shrink-0 font-extrabold text-[9px] overflow-hidden">
-                            {school.logoUrl ? (
-                              <img
-                                src={school.logoUrl}
-                                alt="Logo"
-                                className="w-full h-full object-contain p-0.5 bg-white"
-                              />
-                            ) : (
-                              'SD'
-                            )}
+                      {/* FULL-COLOR EMERALD GREEN CARD SURFACE (Identical to Preview Template) */}
+                      <div
+                        className="kts-card-fullcolor h-full w-full rounded-lg overflow-hidden flex flex-col justify-between text-white relative shadow-xs"
+                        style={{
+                          background:
+                            'linear-gradient(135deg, #064e3b 0%, #065f46 55%, #0f766e 100%)',
+                          backgroundColor: '#065f46',
+                          color: '#ffffff',
+                          border: '1px solid #047857',
+                          WebkitPrintColorAdjust: 'exact',
+                          printColorAdjust: 'exact',
+                        }}
+                      >
+                        {/* Kop Kartu (Header Hijau Tua + Garis Aksen Kuning/Emas) */}
+                        <div
+                          className="px-2.5 py-1.5 flex items-center justify-between gap-1.5"
+                          style={{
+                            backgroundColor: '#022c22',
+                            borderBottom: '2px solid #fbbf24',
+                            WebkitPrintColorAdjust: 'exact',
+                            printColorAdjust: 'exact',
+                          }}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <div
+                              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-extrabold text-[9px] overflow-hidden p-0.5"
+                              style={{
+                                backgroundColor: '#ffffff',
+                                border: '1.5px solid #fbbf24',
+                                color: '#065f46',
+                              }}
+                            >
+                              {school.logoUrl ? (
+                                <img
+                                  src={school.logoUrl}
+                                  alt="Logo"
+                                  crossOrigin="anonymous"
+                                  className="w-full h-full object-contain"
+                                />
+                              ) : (
+                                <GraduationCap className="w-4 h-4 text-emerald-800" />
+                              )}
+                            </div>
+                            <div className="leading-tight overflow-hidden flex-1 min-w-0">
+                              <div
+                                className="text-[6.5px] uppercase tracking-wider font-bold truncate"
+                                style={{ color: '#a7f3d0' }}
+                              >
+                                {school.educationAgency || 'PEMERINTAH DAERAH • DINAS PENDIDIKAN'}
+                              </div>
+                              <div
+                                className="text-[9.5px] font-black tracking-wide truncate"
+                                style={{ color: '#ffffff' }}
+                              >
+                                {school.schoolName.toUpperCase()}
+                              </div>
+                              <div
+                                className="text-[7px] font-extrabold tracking-wider"
+                                style={{ color: '#fde68a' }}
+                              >
+                                KARTU TANDA SISWA (KTS)
+                              </div>
+                            </div>
                           </div>
-                          <div className="leading-tight overflow-hidden flex-1 min-w-0">
-                            <div className="text-[7px] uppercase tracking-wider font-semibold text-slate-500 truncate">
-                              {school.educationAgency || 'PEMERINTAH DAERAH • DINAS PENDIDIKAN'}
-                            </div>
-                            <div className="text-[9.5px] font-black text-slate-900 truncate">
-                              {school.schoolName.toUpperCase()}
-                            </div>
-                            <div className="text-[7px] font-bold text-emerald-800 tracking-wider">
-                              KARTU TANDA SISWA (KTS)
-                            </div>
+
+                          <div
+                            className="text-[6.5px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0"
+                            style={{
+                              backgroundColor: 'rgba(6, 78, 59, 0.9)',
+                              color: '#6ee7b7',
+                              border: '1px solid rgba(52, 211, 153, 0.45)',
+                            }}
+                          >
+                            NPSN: {school.npsn}
                           </div>
                         </div>
 
-                        {/* Content */}
-                        <div className="grid grid-cols-12 gap-1.5 items-center my-auto py-0.5">
+                        {/* Content Body (Foto + Biodata + Bingkai QR Putih) */}
+                        <div className="px-2.5 py-1.5 flex items-center gap-2 my-auto">
                           {/* Photo / Avatar */}
-                          <div className="col-span-3">
-                            <div className="w-14 h-18 bg-slate-100 rounded border border-slate-300 flex flex-col items-center justify-center text-center overflow-hidden mx-auto">
+                          <div className="shrink-0 flex flex-col items-center">
+                            <div
+                              className="w-[48px] h-[62px] rounded-md flex flex-col items-center justify-center text-center overflow-hidden relative"
+                              style={{
+                                backgroundColor: '#022c22',
+                                border: '1.5px solid #fbbf24',
+                              }}
+                            >
                               {student.photoUrl ? (
                                 <img
                                   src={student.photoUrl}
                                   alt={student.name}
+                                  crossOrigin="anonymous"
                                   className="w-full h-full object-cover"
                                 />
                               ) : (
-                                <>
-                                  <span className="text-sm font-black text-slate-800">
+                                <div
+                                  className="w-full h-full flex flex-col items-center justify-center"
+                                  style={{
+                                    backgroundColor:
+                                      student.gender === 'L' ? '#1e3a8a' : '#831843',
+                                  }}
+                                >
+                                  <span
+                                    className="text-sm font-black"
+                                    style={{ color: '#ffffff' }}
+                                  >
                                     {student.name.charAt(0).toUpperCase()}
                                   </span>
-                                  <span className="text-[7.5px] font-bold text-slate-600 mt-0.5">
+                                  <span
+                                    className="text-[7px] font-bold px-1 py-0.2 rounded mt-0.5"
+                                    style={{
+                                      backgroundColor:
+                                        student.gender === 'L' ? '#3b82f6' : '#ec4899',
+                                      color: '#ffffff',
+                                    }}
+                                  >
                                     {student.gender === 'L' ? 'L' : 'P'}
                                   </span>
-                                </>
+                                </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Details */}
-                          <div className="col-span-5 space-y-0.5 text-slate-900 pr-0.5">
+                          {/* Student Biodata */}
+                          <div className="flex-1 min-w-0 space-y-1 pr-0.5">
                             <div>
-                              <div className="text-[7px] text-slate-500 uppercase font-semibold">
-                                Nama Siswa
+                              <div
+                                className="text-[6.5px] uppercase font-bold tracking-wider"
+                                style={{ color: '#a7f3d0' }}
+                              >
+                                Nama Lengkap Siswa
                               </div>
                               <div
-                                className="text-[10px] font-extrabold truncate leading-tight text-slate-900"
+                                className="text-[10px] font-extrabold truncate leading-tight"
+                                style={{ color: '#ffffff' }}
                                 title={student.name}
                               >
                                 {student.name}
                               </div>
                             </div>
-                            <div>
-                              <div className="text-[7px] text-slate-500 uppercase font-semibold">
-                                NISN
+
+                            <div className="flex items-center gap-2.5">
+                              <div>
+                                <div
+                                  className="text-[6.5px] uppercase font-bold tracking-wider"
+                                  style={{ color: '#a7f3d0' }}
+                                >
+                                  NISN
+                                </div>
+                                <div
+                                  className="text-[9.5px] font-mono font-extrabold"
+                                  style={{ color: '#fde68a' }}
+                                >
+                                  {student.nisn}
+                                </div>
                               </div>
-                              <div className="text-[9.5px] font-mono font-bold text-slate-800">
-                                {student.nisn}
+
+                              <div>
+                                <div
+                                  className="text-[6.5px] uppercase font-bold tracking-wider"
+                                  style={{ color: '#a7f3d0' }}
+                                >
+                                  Rombel
+                                </div>
+                                <div
+                                  className="text-[9px] font-extrabold"
+                                  style={{ color: '#ffffff' }}
+                                >
+                                  Kelas {student.classGrade}
+                                </div>
                               </div>
                             </div>
-                            <div>
-                              <div className="text-[7px] text-slate-500 uppercase font-semibold">
-                                Kelas
-                              </div>
-                              <div className="text-[9px] font-bold text-emerald-900">
-                                Kelas {student.classGrade}
-                              </div>
+
+                            <div className="flex items-center gap-1 pt-0.5">
+                              <span
+                                className="text-[6.5px] font-semibold px-1.5 py-0.5 rounded"
+                                style={{
+                                  backgroundColor: 'rgba(2, 44, 34, 0.55)',
+                                  color: '#d1fae5',
+                                  border: '1px solid rgba(52, 211, 153, 0.35)',
+                                }}
+                              >
+                                Thn Ajaran {school.academicYear}
+                              </span>
                             </div>
                           </div>
 
-                          {/* QR Code (Enlarged & High-Density) */}
-                          <div className="col-span-4 flex flex-col items-center justify-center text-center">
-                            <div className="p-0.5 bg-white border border-slate-900 rounded-md inline-flex flex-col items-center justify-center shadow-2xs w-[76px]">
+                          {/* QR Code Frame (Putih Bersih dengan Bingkai Emas) */}
+                          <div className="shrink-0 flex flex-col items-center justify-center text-center">
+                            <div
+                              className="p-1 rounded-lg inline-flex flex-col items-center justify-center shadow-xs w-[76px]"
+                              style={{
+                                backgroundColor: '#ffffff',
+                                border: '2px solid #fbbf24',
+                              }}
+                            >
                               {codeType === 'qr' ? (
-                                <div className="w-[72px] h-[72px] flex items-center justify-center bg-white overflow-hidden">
+                                <div className="w-[66px] h-[66px] flex items-center justify-center bg-white overflow-hidden">
                                   <StudentQRCode
                                     value={student.qrCode || student.nisn}
-                                    size={84}
+                                    size={80}
                                     margin={0}
                                     includeMargin={false}
                                     className="w-full h-full object-contain"
                                   />
                                 </div>
                               ) : (
-                                <StudentBarcode value={student.nisn} height={28} />
+                                <StudentBarcode value={student.nisn} height={26} />
                               )}
-                              <span className="text-[6.5px] font-extrabold font-mono text-slate-950 mt-0.5 tracking-tight leading-none">
+                              <span
+                                className="text-[6.5px] font-extrabold font-mono mt-0.5 tracking-tight leading-none"
+                                style={{ color: '#064e3b' }}
+                              >
                                 SCAN KTS
                               </span>
                             </div>
-                            <span className="text-[8px] font-mono font-bold text-slate-800 mt-0.5 truncate max-w-full">
-                              {student.qrCode || student.nisn}
-                            </span>
                           </div>
                         </div>
 
-                        {/* Footer validation */}
-                        <div className="pt-1 border-t border-slate-200 flex justify-between items-end text-[6.5px] text-slate-500 leading-tight">
-                          <div className="max-w-[120px] truncate">
-                            NPSN: {school.npsn} &bull; {school.address.split(',')[0]}
+                        {/* Footer Kartu (Validasi & Kepala Sekolah) */}
+                        <div
+                          className="px-2.5 py-1 flex justify-between items-end text-[6.5px] leading-tight"
+                          style={{
+                            backgroundColor: 'rgba(2, 44, 34, 0.5)',
+                            borderTop: '1px solid rgba(52, 211, 153, 0.35)',
+                          }}
+                        >
+                          <div className="max-w-[125px] truncate" style={{ color: '#d1fae5' }}>
+                            <div>Berlaku selama menjadi siswa aktif</div>
+                            <div className="truncate" style={{ color: '#a7f3d0' }}>
+                              {school.address.split(',')[0]}
+                            </div>
                           </div>
                           <div className="text-right">
-                            <span className="font-bold text-slate-800">{school.principalName}</span>
-                            <div>Kepala Sekolah</div>
+                            <div style={{ color: '#fde68a' }} className="font-semibold">
+                              Kepala Sekolah
+                            </div>
+                            <div
+                              className="font-extrabold underline"
+                              style={{ color: '#ffffff' }}
+                            >
+                              {school.principalName}
+                            </div>
                           </div>
                         </div>
                       </div>
