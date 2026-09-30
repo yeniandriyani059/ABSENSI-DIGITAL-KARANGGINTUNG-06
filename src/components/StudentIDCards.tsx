@@ -204,6 +204,15 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
       color-adjust: exact !important;
     }
     @media print {
+      *, *::before, *::after {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      .kts-card, .id-card, .bg-green-header {
+        background-color: #064e3b !important;
+        -webkit-filter: opacity(1) !important;
+      }
       .print-card-sheet { margin-bottom: 0 !important; }
       .no-print-toolbar { display: none !important; }
     }
@@ -359,9 +368,15 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Format code switch */}
-            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold">
+          <div className="flex flex-col items-start lg:items-end gap-2">
+            {/* Petunjuk Infografik Kecil di Atas Tombol Cetak */}
+            <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 leading-snug max-w-xl">
+              💡 Tips Cetak: Jika hasil cetak/PDF berubah putih, pastikan centang opsi &apos;Grafik Latar Belakang / Background Graphics&apos; pada menu Setelan Lainnya di browser Anda.
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Format code switch */}
+              <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setCodeType('qr')}
@@ -452,6 +467,7 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                 </span>
               )}
             </button>
+            </div>
           </div>
         </div>
 
@@ -552,15 +568,16 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
             >
               {/* Card visual representation (Desain Full-Color Hijau Resmi) */}
               <div
-                className="kts-card-fullcolor bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-800 text-white relative overflow-hidden"
+                className="kts-card id-card kts-card-fullcolor bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-800 text-white relative overflow-hidden"
                 style={{
                   background: 'linear-gradient(135deg, #064e3b 0%, #065f46 55%, #0f766e 100%)',
+                  backgroundColor: '#064e3b',
                 }}
               >
                 {/* School header (Hijau Tua + Garis Aksen Kuning/Emas) */}
                 <div
-                  className="px-4 py-2.5 flex items-center gap-2.5 border-b-2 border-amber-400"
-                  style={{ backgroundColor: 'rgba(2, 44, 34, 0.72)' }}
+                  className="bg-green-header px-4 py-2.5 flex items-center gap-2.5 border-b-2 border-amber-400"
+                  style={{ backgroundColor: '#064e3b' }}
                 >
                   <div className="w-9 h-9 bg-white border-2 border-amber-400 rounded-full flex items-center justify-center text-emerald-800 shrink-0 font-black text-xs shadow-xs overflow-hidden p-0.5">
                     {school.logoUrl ? (
@@ -1123,11 +1140,11 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
 
                       {/* FULL-COLOR EMERALD GREEN CARD SURFACE (Identical to Preview Template) */}
                       <div
-                        className="kts-card-fullcolor h-full w-full rounded-lg overflow-hidden flex flex-col justify-between text-white relative shadow-xs"
+                        className="kts-card id-card kts-card-fullcolor h-full w-full rounded-lg overflow-hidden flex flex-col justify-between text-white relative shadow-xs"
                         style={{
                           background:
                             'linear-gradient(135deg, #064e3b 0%, #065f46 55%, #0f766e 100%)',
-                          backgroundColor: '#065f46',
+                          backgroundColor: '#064e3b',
                           color: '#ffffff',
                           border: '1px solid #047857',
                           WebkitPrintColorAdjust: 'exact',
@@ -1136,9 +1153,9 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                       >
                         {/* Kop Kartu (Header Hijau Tua + Garis Aksen Kuning/Emas) */}
                         <div
-                          className="px-2.5 py-1.5 flex items-center justify-between gap-1.5"
+                          className="bg-green-header px-2.5 py-1.5 flex items-center justify-between gap-1.5"
                           style={{
-                            backgroundColor: '#022c22',
+                            backgroundColor: '#064e3b',
                             borderBottom: '2px solid #fbbf24',
                             WebkitPrintColorAdjust: 'exact',
                             printColorAdjust: 'exact',

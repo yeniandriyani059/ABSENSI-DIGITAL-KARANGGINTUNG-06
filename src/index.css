@@ -15,6 +15,18 @@
     color-adjust: exact !important;
   }
 
+  .kts-card,
+  .id-card,
+  .bg-green-header,
+  .kts-card-fullcolor {
+    background-color: #064e3b !important;
+    -webkit-filter: opacity(1) !important;
+    filter: opacity(1) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
   html, body {
     background-color: #ffffff !important;
     background: #ffffff !important;
