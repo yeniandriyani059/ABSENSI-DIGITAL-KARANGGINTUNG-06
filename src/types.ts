@@ -11,16 +11,19 @@ export interface DbStudent {
   nisn: string;
   nama: string;
   kelas: string;
-  // Supabase might have these, but user didn't mention them explicitly.
+  no_wa_ortu?: string;
+  foto_url?: string;
+  photo_url?: string;
+  jenis_kelamin?: 'L' | 'P';
   gender?: 'L' | 'P';
   qr_code?: string;
-  photo_url?: string;
-  no_wa_ortu?: string;
 }
 
 export interface DbAttendance {
   id: any;
-  nisn_siswa: string;
+  siswa_id?: string;
+  tanggal?: string;
+  nisn_siswa?: string;
   created_at: string; // ISO string
   status: AttendanceStatus;
 }

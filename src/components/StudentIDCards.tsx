@@ -23,9 +23,10 @@ import {
 import { Student, SchoolProfile } from '../types';
 import { StudentQRCode } from './StudentQRCode';
 import { StudentBarcode } from './StudentBarcode';
-import { exportElementToImage, compressAndResizeImage } from '../utils/imageExport';
+import { exportElementToImage } from '../utils/imageExport';
 import { downloadStudentCardCanvas } from '../utils/idCardCanvas';
 import { exportCardsPagesToPdf } from '../utils/pdfExport';
+import { uploadStudentPhotoToSupabase } from '../utils/studentPhotoService';
 
 interface StudentIDCardsProps {
   students: Student[];
@@ -46,6 +47,8 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudentForModal, setSelectedStudentForModal] = useState<Student | null>(null);
+  const [photoTargetStudent, setPhotoTargetStudent] = useState<Student | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [codeType, setCodeType] = useState<'qr' | 'barcode'>('qr');
   const [isExportingImage, setIsExportingImage] = useState(false);
   const [isExportingSingleImage, setIsExportingSingleImage] = useState(false);
@@ -292,20 +295,31 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
     }
   };
 
-  // Handle photo upload directly from card preview
+  // Handle photo upload to Supabase Storage Bucket `foto_siswa` & `siswa.foto_url` (Cross-Device)
   const handleModalPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !selectedStudentForModal) return;
+    const targetStudent = photoTargetStudent || selectedStudentForModal;
+    if (!file || !targetStudent) return;
 
+    setIsUploadingPhoto(true);
     try {
-      const compressed = await compressAndResizeImage(file, 360, 480, 0.85);
-      const updated: Student = { ...selectedStudentForModal, photoUrl: compressed };
-      setSelectedStudentForModal(updated);
+      const { publicUrl } = await uploadStudentPhotoToSupabase(
+        file,
+        targetStudent.nisn,
+        targetStudent.id
+      );
+      const updated: Student = { ...targetStudent, photoUrl: publicUrl };
+      if (selectedStudentForModal && selectedStudentForModal.id === targetStudent.id) {
+        setSelectedStudentForModal(updated);
+      }
       if (onUpdateStudent) {
         onUpdateStudent(updated);
       }
     } catch (err) {
-      alert('Gagal mengunggah foto. Pastikan format berkas JPG atau PNG.');
+      alert('Gagal mengunggah foto ke Supabase. Pastikan format berkas JPG atau PNG.');
+    } finally {
+      setIsUploadingPhoto(false);
+      setPhotoTargetStudent(null);
     }
     e.target.value = '';
   };
@@ -624,13 +638,28 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
 
               {/* Card Footer actions */}
               <div className="p-3 bg-white border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setSelectedStudentForModal(student)}
-                  className="px-2.5 py-1.5 font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                >
-                  Pratinjau Satuan
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStudentForModal(student)}
+                    className="px-2.5 py-1.5 font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Pratinjau Satuan
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isUploadingPhoto}
+                    onClick={() => {
+                      setPhotoTargetStudent(student);
+                      modalPhotoInputRef.current?.click();
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-1.5 font-semibold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                    title="Unggah foto ke Supabase Storage Bucket foto_siswa (Sinkron HP & Laptop)"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{student.photoUrl ? 'Ganti Foto' : 'Foto'}</span>
+                  </button>
+                </div>
 
                 <div className="flex items-center gap-1.5">
                   <button
@@ -733,12 +762,22 @@ export const StudentIDCards: React.FC<StudentIDCardsProps> = ({
                   {/* Direct upload / change photo button */}
                   <button
                     type="button"
-                    onClick={() => modalPhotoInputRef.current?.click()}
-                    className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold text-emerald-100 hover:text-white bg-emerald-900/70 hover:bg-emerald-900 border border-emerald-400/40 rounded-md transition-colors cursor-pointer"
-                    title="Unggah atau ubah foto siswa ini"
+                    disabled={isUploadingPhoto}
+                    onClick={() => {
+                      setPhotoTargetStudent(selectedStudentForModal);
+                      modalPhotoInputRef.current?.click();
+                    }}
+                    className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold text-emerald-100 hover:text-white bg-emerald-900/70 hover:bg-emerald-900 border border-emerald-400/40 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                    title="Unggah foto ke Supabase Storage Bucket foto_siswa"
                   >
                     <Camera className="w-3 h-3" />
-                    <span>{selectedStudentForModal.photoUrl ? 'Ganti Foto' : 'Unggah Foto'}</span>
+                    <span>
+                      {isUploadingPhoto
+                        ? 'Mengunggah...'
+                        : selectedStudentForModal.photoUrl
+                        ? 'Ganti Foto'
+                        : 'Unggah Foto'}
+                    </span>
                   </button>
                 </div>
 

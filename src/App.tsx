@@ -79,6 +79,7 @@ import {
   createWaLogEntry,
   recordManualClickToChatWaLog,
   evaluateStudentEwsIndicators,
+  formatPhoneForWaLink,
 } from './utils/ewsAndWaService';
 
 type TabType =
@@ -156,6 +157,10 @@ export default function App() {
         nisn: db.nisn,
         name: db.nama,
         classGrade: db.kelas,
+        parentPhone: db.no_wa_ortu || undefined,
+        photoUrl: db.foto_url || db.photo_url || undefined,
+        gender: db.jenis_kelamin || db.gender || 'L',
+        qrCode: db.qr_code || db.nisn,
       }));
       if (mappedStudents.length > 0) {
         setStudents(mappedStudents);
@@ -163,12 +168,19 @@ export default function App() {
       }
 
       const mappedRecords: AttendanceRecord[] = (attendanceRes.data || []).map((db: DbAttendance) => {
-        const d = new Date(db.created_at);
+        const d = db.created_at ? new Date(db.created_at) : new Date();
+        const dateStr =
+          db.tanggal ||
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+            d.getDate()
+          ).padStart(2, '0')}`;
         return {
           id: db.id,
-          studentId: db.nisn_siswa, // We map nisn_siswa -> studentId
-          date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
-          scannedAt: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`,
+          studentId: String(db.siswa_id || db.nisn_siswa || ''),
+          date: dateStr,
+          scannedAt: `${String(d.getHours()).padStart(2, '0')}:${String(
+            d.getMinutes()
+          ).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`,
           status: db.status,
         };
       });
@@ -266,13 +278,32 @@ export default function App() {
     fetchStudentsAndRecords();
     fetchSchoolProfile();
 
-    // Berlangganan (Realtime Subscription) perubahan tabel profil_sekolah dari Supabase
+    // Berlangganan (Realtime Subscription) perubahan tabel profil_sekolah, siswa (foto_url), dan presensi dari Supabase
     const unsubscribe = subscribeSchoolProfileRealtime((updatedProfile) => {
       setSchool(updatedProfile);
     });
 
+    const dataChannel = supabase
+      .channel('realtime_siswa_presensi')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'siswa' },
+        () => {
+          fetchStudentsAndRecords({ silent: true });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'presensi' },
+        () => {
+          fetchStudentsAndRecords({ silent: true });
+        }
+      )
+      .subscribe();
+
     return () => {
       unsubscribe();
+      supabase.removeChannel(dataChannel);
     };
   }, [fetchStudentsAndRecords, fetchSchoolProfile]);
 
@@ -285,7 +316,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('daily');
-  const [selectedClass, setSelectedClass] = useState<string>('4');
+  const [selectedClass, setSelectedClass] = useState<string>('1');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
@@ -399,22 +430,36 @@ export default function App() {
       }
 
       try {
-        const inserts = newRecords.map((r) => {
+        const primaryInserts = newRecords.map((r) => {
           const payload: any = {
-            nisn_siswa: r.studentId,
-            created_at: `${r.date}T${(r.scannedAt || '07:00:00').replace(/\./g, ':')}+07:00`,
+            siswa_id: r.studentId,
+            tanggal: r.date,
             status: r.status,
+            created_at: `${r.date}T${(r.scannedAt || '07:00:00').replace(/\./g, ':')}+07:00`,
           };
-          // Only include id if it's a number (from DB). If it starts with "att-", omit it so DB generates it.
           if (typeof r.id === 'number' || (typeof r.id === 'string' && !r.id.startsWith('att-'))) {
             payload.id = r.id;
           }
           return payload;
         });
 
-        const { error } = await supabase.from('presensi').upsert(inserts).select();
+        const { error } = await supabase.from('presensi').upsert(primaryInserts).select();
 
-        if (error) throw error;
+        if (error) {
+          const fallbackInserts = newRecords.map((r) => {
+            const payload: any = {
+              nisn_siswa: r.studentId,
+              created_at: `${r.date}T${(r.scannedAt || '07:00:00').replace(/\./g, ':')}+07:00`,
+              status: r.status,
+            };
+            if (typeof r.id === 'number' || (typeof r.id === 'string' && !r.id.startsWith('att-'))) {
+              payload.id = r.id;
+            }
+            return payload;
+          });
+          const { error: fbError } = await supabase.from('presensi').upsert(fallbackInserts).select();
+          if (fbError) throw fbError;
+        }
 
         showToast('Presensi berhasil disimpan ke server.', 'success');
         fetchStudentsAndRecords({ silent: true });
@@ -447,22 +492,35 @@ export default function App() {
       }
 
       try {
-        const payload: any = {
-          nisn_siswa: newRecord.studentId,
-          created_at: `${newRecord.date}T${(newRecord.scannedAt || '07:00:00').replace(/\./g, ':')}+07:00`,
+        const cleanTime = (newRecord.scannedAt || '07:00:00').replace(/\./g, ':');
+        const primaryPayload: any = {
+          siswa_id: newRecord.studentId,
+          tanggal: newRecord.date,
           status: newRecord.status,
+          created_at: `${newRecord.date}T${cleanTime}+07:00`,
         };
 
         if (
           typeof newRecord.id === 'number' ||
           (typeof newRecord.id === 'string' && !newRecord.id.startsWith('att-'))
         ) {
-          payload.id = newRecord.id;
+          primaryPayload.id = newRecord.id;
         }
 
-        const { error } = await supabase.from('presensi').upsert(payload).select();
+        const { error } = await supabase.from('presensi').upsert(primaryPayload).select();
 
-        if (error) throw error;
+        if (error) {
+          const fallbackPayload: any = {
+            nisn_siswa: newRecord.studentId,
+            created_at: `${newRecord.date}T${cleanTime}+07:00`,
+            status: newRecord.status,
+          };
+          if (primaryPayload.id !== undefined) {
+            fallbackPayload.id = primaryPayload.id;
+          }
+          const { error: fbError } = await supabase.from('presensi').upsert(fallbackPayload).select();
+          if (fbError) throw fbError;
+        }
 
         fetchStudentsAndRecords({ silent: true });
       } catch (e) {
@@ -604,7 +662,7 @@ export default function App() {
           );
         } else {
           showToast(
-            `Presensi ${student.name} diperbarui menjadi "${res.mappedStatus}" (sipena_presensi & wa_logs diupdate, ews_alerts direset).`,
+            `Presensi ${student.name} diperbarui menjadi "${res.mappedStatus}" (presensi & wa_logs diupdate, ews_alerts direset).`,
             'success'
           );
         }
@@ -674,72 +732,205 @@ export default function App() {
     []
   );
 
-  // Handlers for Students
-  const handleAddStudent = useCallback(async (s: Omit<Student, 'id'>) => {
-    try {
-      const { data, error } = await supabase
-        .from('siswa')
-        .insert({
+  // Handlers for Students (tabel `siswa`: id, nisn, nama, kelas, jenis_kelamin, no_wa_ortu, foto_url, qr_code)
+  const handleAddStudent = useCallback(
+    async (s: Omit<Student, 'id'>) => {
+      try {
+        const cleanWa = s.parentPhone?.trim()
+          ? formatPhoneForWaLink(s.parentPhone.trim())
+          : null;
+        let insertedRow: any = null;
+
+        const fullPayload: Record<string, any> = {
           nisn: s.nisn,
           nama: s.name,
           kelas: s.classGrade,
-        })
-        .select();
+          jenis_kelamin: s.gender || 'L',
+          no_wa_ortu: cleanWa,
+          foto_url: s.photoUrl || null,
+          qr_code: s.qrCode || s.nisn,
+        };
 
-      if (error) throw error;
-      
-      const newS: Student = {
+        const { data, error } = await supabase.from('siswa').insert(fullPayload).select();
+
+        if (error) {
+          const { data: midData, error: midError } = await supabase
+            .from('siswa')
+            .insert({
+              nisn: s.nisn,
+              nama: s.name,
+              kelas: s.classGrade,
+              no_wa_ortu: cleanWa,
+              foto_url: s.photoUrl || null,
+            })
+            .select();
+
+          if (midError) {
+            const { data: fbData, error: fbError } = await supabase
+              .from('siswa')
+              .insert({
+                nisn: s.nisn,
+                nama: s.name,
+                kelas: s.classGrade,
+              })
+              .select();
+            if (fbError) throw fbError;
+            insertedRow = fbData?.[0];
+          } else {
+            insertedRow = midData?.[0];
+          }
+        } else {
+          insertedRow = data?.[0];
+        }
+
+        const newS: Student = {
+          ...s,
+          id: insertedRow?.id || `std-${Date.now()}`,
+          photoUrl: insertedRow?.foto_url || s.photoUrl,
+          parentPhone: insertedRow?.no_wa_ortu || cleanWa || undefined,
+          qrCode: insertedRow?.qr_code || s.qrCode || s.nisn,
+        };
+
+        setStudents((prev) => {
+          const next = [...prev, newS];
+          setCachedStudents(next);
+          return next;
+        });
+
+        showToast('Data siswa dan foto berhasil disimpan!', 'success');
+        await fetchStudentsAndRecords({ silent: true });
+      } catch (e) {
+        console.error(e);
+        alert('Gagal menambah data siswa ke server.');
+      }
+    },
+    [fetchStudentsAndRecords, showToast]
+  );
+
+  const handleBatchAddStudents = useCallback(
+    async (newStudentsList: Omit<Student, 'id'>[]) => {
+      try {
+        const fullInserts = newStudentsList.map((s) => ({
+          nisn: s.nisn,
+          nama: s.name,
+          kelas: s.classGrade,
+          jenis_kelamin: s.gender || 'L',
+          no_wa_ortu: s.parentPhone?.trim() ? formatPhoneForWaLink(s.parentPhone.trim()) : null,
+          foto_url: s.photoUrl || null,
+          qr_code: s.qrCode || s.nisn,
+        }));
+
+        const { error } = await supabase.from('siswa').insert(fullInserts).select();
+
+        if (error) {
+          const basicInserts = newStudentsList.map((s) => ({
+            nisn: s.nisn,
+            nama: s.name,
+            kelas: s.classGrade,
+          }));
+          const { error: fbError } = await supabase.from('siswa').insert(basicInserts).select();
+          if (fbError) throw fbError;
+        }
+
+        fetchStudentsAndRecords();
+      } catch (e) {
+        console.error(e);
+        alert('Gagal menambah siswa secara massal.');
+      }
+    },
+    [fetchStudentsAndRecords]
+  );
+
+  const handleUpdateStudent = useCallback(
+    async (s: Student) => {
+      // 1. Automatisasi format nomor WhatsApp ('08...' -> '628...')
+      const cleanWa = s.parentPhone?.trim()
+        ? formatPhoneForWaLink(s.parentPhone.trim())
+        : undefined;
+
+      const normalizedStudent: Student = {
         ...s,
-        id: data[0].id
+        parentPhone: cleanWa,
+        qrCode: s.qrCode || s.nisn,
       };
-      
-      setStudents((prev) => [...prev, newS]);
-    } catch (e) {
-      console.error(e);
-      alert('Gagal menambah data siswa ke server.');
-    }
-  }, []);
 
-  const handleBatchAddStudents = useCallback(async (newStudentsList: Omit<Student, 'id'>[]) => {
-    try {
-      const inserts = newStudentsList.map(s => ({
-        nisn: s.nisn,
-        nama: s.name,
-        kelas: s.classGrade,
-      }));
-      
-      const { data, error } = await supabase
-        .from('siswa')
-        .insert(inserts)
-        .select();
+      // Optimistic update lokal & cache agar langsung tampil di ID Card & Data Siswa
+      setStudents((prev) => {
+        const next = prev.map((item) =>
+          item.id === s.id || item.nisn === s.nisn ? normalizedStudent : item
+        );
+        setCachedStudents(next);
+        return next;
+      });
 
-      if (error) throw error;
-      
-      fetchStudentsAndRecords();
-    } catch (e) {
-      console.error(e);
-      alert('Gagal menambah siswa secara massal.');
-    }
-  }, [fetchStudentsAndRecords]);
-
-  const handleUpdateStudent = useCallback(async (s: Student) => {
-    try {
-      const { error } = await supabase
-        .from('siswa')
-        .update({
+      try {
+        // 3. Eksekusi Update Database Supabase pada tabel `siswa` berdasarkan ID / NISN
+        const fullUpdate: Record<string, any> = {
           nisn: s.nisn,
           nama: s.name,
           kelas: s.classGrade,
-        })
-        .eq('id', s.id);
-        
-      if (error) throw error;
-      setStudents((prev) => prev.map((item) => (item.id === s.id ? s : item)));
-    } catch (e) {
-      console.error(e);
-      alert('Gagal memperbarui data siswa.');
-    }
-  }, []);
+          jenis_kelamin: s.gender || 'L',
+          no_wa_ortu: cleanWa || null,
+          foto_url: s.photoUrl || null,
+          qr_code: s.qrCode || s.nisn,
+        };
+
+        const isLocalSeedId = String(s.id).startsWith('std-');
+        const matchColumn = isLocalSeedId ? 'nisn' : 'id';
+        const matchValue = isLocalSeedId ? s.nisn : s.id;
+
+        const { error } = await supabase
+          .from('siswa')
+          .update(fullUpdate)
+          .eq(matchColumn, matchValue);
+
+        if (error) {
+          // Fallback bertahap apabila ada kolom opsional yang belum dibuat pada tabel `siswa`
+          const { error: midErr } = await supabase
+            .from('siswa')
+            .update({
+              nisn: s.nisn,
+              nama: s.name,
+              kelas: s.classGrade,
+              no_wa_ortu: cleanWa || null,
+              foto_url: s.photoUrl || null,
+            })
+            .eq(matchColumn, matchValue);
+
+          if (midErr) {
+            const { error: photoErr } = await supabase
+              .from('siswa')
+              .update({
+                nisn: s.nisn,
+                nama: s.name,
+                kelas: s.classGrade,
+                foto_url: s.photoUrl || null,
+              })
+              .eq(matchColumn, matchValue);
+
+            if (photoErr) {
+              const { error: basicErr } = await supabase
+                .from('siswa')
+                .update({
+                  nisn: s.nisn,
+                  nama: s.name,
+                  kelas: s.classGrade,
+                })
+                .eq(matchColumn, matchValue);
+              if (basicErr) throw basicErr;
+            }
+          }
+        }
+
+        showToast('Data siswa dan foto berhasil diperbarui!', 'success');
+        await fetchStudentsAndRecords({ silent: true });
+      } catch (e) {
+        console.error(e);
+        alert('Gagal memperbarui data siswa.');
+      }
+    },
+    [fetchStudentsAndRecords, showToast]
+  );
 
   const handleDeleteStudent = useCallback(async (id: string) => {
     try {

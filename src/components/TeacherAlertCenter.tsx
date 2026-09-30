@@ -66,7 +66,7 @@ export const TeacherAlertCenter: React.FC<TeacherAlertCenterProps> = ({
   bkLetterTarget,
   onSelectBkLetterTarget,
 }) => {
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'students' | 'walogs'>('students');
   const [isRunningCron, setIsRunningCron] = useState<boolean>(false);
 
@@ -370,7 +370,7 @@ export const TeacherAlertCenter: React.FC<TeacherAlertCenterProps> = ({
               onClick={() => setIsExpanded((prev) => !prev)}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
             >
-              <span>{isExpanded ? 'Tutup Panel' : 'Buka Panel'}</span>
+              <span>{isExpanded ? 'Tutup Panel' : 'Buka Panel WA & Alert'}</span>
               {isExpanded ? (
                 <ChevronUp className="w-3.5 h-3.5" />
               ) : (

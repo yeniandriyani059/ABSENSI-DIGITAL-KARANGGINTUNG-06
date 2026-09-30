@@ -6,10 +6,12 @@ export const CACHED_STUDENTS_KEY = 'sdn06_cached_students';
 export const CACHED_RECORDS_KEY = 'sdn06_cached_records';
 
 export interface OfflineAttendanceQueueItem {
-  queueId: string; // unique key per student + date: `${nisn_siswa}_${date}`
+  queueId: string; // unique key per student + date: `${siswa_id}_${tanggal}`
   payload: {
     id?: any;
-    nisn_siswa: string;
+    siswa_id: string;
+    tanggal: string;
+    nisn_siswa?: string;
     created_at: string;
     status: AttendanceStatus;
   };
@@ -65,6 +67,8 @@ export function enqueueOfflineAttendance(recordsToQueue: AttendanceRecord[]): Of
   recordsToQueue.forEach((r) => {
     const cleanTime = (r.scannedAt || '07:00:00').replace(/\./g, ':');
     const payload: OfflineAttendanceQueueItem['payload'] = {
+      siswa_id: r.studentId,
+      tanggal: r.date,
       nisn_siswa: r.studentId,
       created_at: `${r.date}T${cleanTime}+07:00`,
       status: r.status,
@@ -197,11 +201,12 @@ export async function syncOfflineQueueToSupabase(): Promise<{
   }
 
   try {
-    const payloads = queue.map((item) => {
+    const primaryPayloads = queue.map((item) => {
       const dbPayload: Record<string, any> = {
-        nisn_siswa: item.payload.nisn_siswa,
-        created_at: item.payload.created_at,
+        siswa_id: item.payload.siswa_id || item.payload.nisn_siswa || item.record.studentId,
+        tanggal: item.payload.tanggal || item.record.date,
         status: item.payload.status,
+        created_at: item.payload.created_at,
       };
       if (
         typeof item.payload.id === 'number' ||
@@ -212,8 +217,29 @@ export async function syncOfflineQueueToSupabase(): Promise<{
       return dbPayload;
     });
 
-    const { error } = await supabase.from('presensi').upsert(payloads).select();
-    if (error) throw error;
+    const { error } = await supabase.from('presensi').upsert(primaryPayloads).select();
+    if (error) {
+      // Fallback jika skema tabel masih menggunakan nisn_siswa
+      const fallbackPayloads = queue.map((item) => {
+        const dbPayload: Record<string, any> = {
+          nisn_siswa: item.payload.siswa_id || item.payload.nisn_siswa || item.record.studentId,
+          created_at: item.payload.created_at,
+          status: item.payload.status,
+        };
+        if (
+          typeof item.payload.id === 'number' ||
+          (typeof item.payload.id === 'string' && !item.payload.id.startsWith('att-'))
+        ) {
+          dbPayload.id = item.payload.id;
+        }
+        return dbPayload;
+      });
+      const { error: fallbackError } = await supabase
+        .from('presensi')
+        .upsert(fallbackPayloads)
+        .select();
+      if (fallbackError) throw fallbackError;
+    }
 
     // Hapus item yang sudah berhasil disinkronkan
     // (Cek apakah ada item baru yang masuk saat request sedang berjalan)

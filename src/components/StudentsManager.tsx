@@ -35,7 +35,7 @@ import {
   exportStudentsToExcel,
   parseStudentsFromExcel,
 } from '../utils/excelHelper';
-import { compressAndResizeImage } from '../utils/imageExport';
+import { uploadStudentPhotoToSupabase } from '../utils/studentPhotoService';
 
 interface StudentsManagerProps {
   students: Student[];
@@ -60,7 +60,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
   onPrintBkLetter,
   onSendWaWarning,
 }) => {
-  const [selectedClass, setSelectedClass] = useState('4');
+  const [selectedClass, setSelectedClass] = useState('1');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -68,7 +68,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
   const [nisn, setNisn] = useState('');
   const [name, setName] = useState('');
   const [gender, setGender] = useState<'L' | 'P'>('L');
-  const [classGrade, setClassGrade] = useState('4');
+  const [classGrade, setClassGrade] = useState('1');
   const [qrCodeVal, setQrCodeVal] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [parentPhone, setParentPhone] = useState('');
@@ -81,6 +81,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
 
   // QR preview modal
   const [previewQrStudent, setPreviewQrStudent] = useState<Student | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   // Excel Import Modal state
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -114,7 +115,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
     setNisn('');
     setName('');
     setGender('L');
-    setClassGrade(selectedClass === 'all' ? '4' : selectedClass);
+    setClassGrade(selectedClass === 'all' ? '1' : selectedClass);
     setQrCodeVal('');
     setPhotoUrl('');
     setParentPhone('');
@@ -126,7 +127,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
 
   const handleStartAdd = () => {
     resetForm();
-    setClassGrade(selectedClass === 'all' ? '4' : selectedClass);
+    setClassGrade(selectedClass === 'all' ? '1' : selectedClass);
     setIsAdding(true);
   };
 
@@ -138,22 +139,31 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
     setClassGrade(student.classGrade);
     setQrCodeVal(student.qrCode || student.nisn);
     setPhotoUrl(student.photoUrl || '');
-    setParentPhone(getStudentParentPhone(student));
+    setParentPhone(formatPhoneForWaLink(getStudentParentPhone(student)));
     setIsAdding(false);
     setError('');
     setQrUploadSuccess('');
   };
 
-  // Process uploaded student portrait photo
+  // Process uploaded student portrait photo -> Upload ke Supabase Storage Bucket `foto_siswa` & simpan `publicUrl`
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsUploadingPhoto(true);
     try {
-      const compressed = await compressAndResizeImage(file, 360, 480, 0.85);
-      setPhotoUrl(compressed);
+      const { publicUrl } = await uploadStudentPhotoToSupabase(
+        file,
+        nisn.trim() || 'siswa',
+        editingId || undefined
+      );
+      setPhotoUrl(publicUrl);
+      setQrUploadSuccess('Foto siswa berhasil diunggah ke Supabase Storage (foto_siswa)!');
+      setTimeout(() => setQrUploadSuccess(''), 4000);
     } catch (err) {
-      alert('Gagal memproses gambar foto. Pastikan format berkas berupa gambar JPG atau PNG.');
+      alert('Gagal mengunggah foto ke Supabase. Pastikan format berkas berupa gambar JPG atau PNG.');
+    } finally {
+      setIsUploadingPhoto(false);
     }
     e.target.value = '';
   };
@@ -223,7 +233,7 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
     alert(`Berhasil mengimpor ${importPreview.length} data siswa ke dalam sistem!`);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nisn.trim() || !name.trim()) {
       setError('Harap isi NISN dan Nama Lengkap Siswa!');
@@ -231,13 +241,15 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
     }
 
     const finalQr = qrCodeVal.trim() || nisn.trim();
-    const cleanPhone = parentPhone.trim();
-    if (cleanPhone) {
-      saveParentPhoneForStudent(nisn.trim(), cleanPhone);
+    // 1. Automatisasi format nomor WhatsApp: ubah '08...' menjadi '628...'
+    const rawPhone = parentPhone.trim();
+    const formattedPhone = rawPhone ? formatPhoneForWaLink(rawPhone) : '';
+    if (formattedPhone) {
+      saveParentPhoneForStudent(nisn.trim(), formattedPhone);
     }
 
     if (editingId) {
-      onUpdateStudent({
+      await onUpdateStudent({
         id: editingId,
         nisn: nisn.trim(),
         name: name.trim(),
@@ -245,18 +257,22 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
         classGrade,
         qrCode: finalQr,
         photoUrl: photoUrl || undefined,
-        parentPhone: cleanPhone || undefined,
+        parentPhone: formattedPhone || undefined,
       });
+      setDeleteSuccessMsg('Data siswa dan foto berhasil diperbarui!');
+      setTimeout(() => setDeleteSuccessMsg(''), 4500);
     } else {
-      onAddStudent({
+      await onAddStudent({
         nisn: nisn.trim(),
         name: name.trim(),
         gender,
         classGrade,
         qrCode: finalQr,
         photoUrl: photoUrl || undefined,
-        parentPhone: cleanPhone || undefined,
+        parentPhone: formattedPhone || undefined,
       });
+      setDeleteSuccessMsg('Data siswa dan foto berhasil disimpan!');
+      setTimeout(() => setDeleteSuccessMsg(''), 4500);
     }
 
     resetForm();
@@ -508,9 +524,14 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="Contoh: 081234567890"
+                  placeholder="Contoh: 081234568949 (otomatis 628...)"
                   value={parentPhone}
                   onChange={(e) => setParentPhone(e.target.value)}
+                  onBlur={() => {
+                    if (parentPhone.trim()) {
+                      setParentPhone(formatPhoneForWaLink(parentPhone.trim()));
+                    }
+                  }}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
                 />
               </div>
@@ -570,11 +591,18 @@ export const StudentsManager: React.FC<StudentsManagerProps> = ({
                 <div className="w-full space-y-1 mt-2.5">
                   <button
                     type="button"
+                    disabled={isUploadingPhoto}
                     onClick={() => photoFileInputRef.current?.click()}
-                    className="w-full px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg flex items-center justify-center gap-1 cursor-pointer"
+                    className="w-full px-2.5 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg flex items-center justify-center gap-1 cursor-pointer disabled:opacity-60"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    <span>{photoUrl ? 'Ganti Foto' : 'Unggah Foto'}</span>
+                    <span>
+                      {isUploadingPhoto
+                        ? 'Mengunggah...'
+                        : photoUrl
+                        ? 'Ganti Foto'
+                        : 'Unggah Foto'}
+                    </span>
                   </button>
 
                   {photoUrl && (

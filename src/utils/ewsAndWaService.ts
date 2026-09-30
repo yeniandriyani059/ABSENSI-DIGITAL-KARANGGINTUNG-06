@@ -592,7 +592,7 @@ export async function handleIncomingWhatsappWebhook(params: {
 
   const phone = formatPhoneForWaLink(getStudentParentPhone(student));
 
-  // Update juga tabel `sipena_presensi` di Supabase jika tersedia
+  // Update tabel `presensi` di Supabase (kolom: siswa_id, tanggal, status, created_at)
   if (typeof navigator !== 'undefined' && navigator.onLine) {
     const nowTime = new Date().toLocaleTimeString('en-GB', {
       hour: '2-digit',
@@ -600,13 +600,14 @@ export async function handleIncomingWhatsappWebhook(params: {
       second: '2-digit',
     });
     try {
-      await supabase.from('sipena_presensi').upsert({
-        nisn_siswa: student.nisn,
-        created_at: `${dateStr}T${nowTime}+07:00`,
+      await supabase.from('presensi').upsert({
+        siswa_id: student.nisn,
+        tanggal: dateStr,
         status: mappedStatus,
+        created_at: `${dateStr}T${nowTime}+07:00`,
       });
     } catch {
-      // Tabel utama `presensi` juga di-update melalui alur Offline-First di App.tsx
+      // Tabel `presensi` juga di-update melalui alur Offline-First di App.tsx
     }
   }
 
