@@ -14,8 +14,11 @@ import {
   Loader2,
   RefreshCw,
   X,
+  Users,
+  GraduationCap,
 } from 'lucide-react';
-import { SchoolProfile, AdminAccount } from '../types';
+import { SchoolProfile, AdminAccount, HomeroomTeacher } from '../types';
+import { CLASS_GRADES, normalizeClassGrade } from '../utils/homeroomTeacherService';
 
 interface SchoolSettingsProps {
   school: SchoolProfile;
@@ -28,6 +31,9 @@ interface SchoolSettingsProps {
   isTableReady?: boolean;
   syncError?: string | null;
   onRefreshSchool?: () => void;
+  homeroomTeachers?: HomeroomTeacher[];
+  onSaveHomeroomTeachers?: (teachers: HomeroomTeacher[]) => Promise<{ success: boolean; error?: string }>;
+  onOpenHomeroomModal?: () => void;
 }
 
 export const SchoolSettings: React.FC<SchoolSettingsProps> = ({
@@ -41,11 +47,67 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({
   isTableReady = true,
   syncError = null,
   onRefreshSchool,
+  homeroomTeachers = [],
+  onSaveHomeroomTeachers,
+  onOpenHomeroomModal,
 }) => {
   const [profile, setProfile] = useState<SchoolProfile>(school);
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // State untuk form tabel interaktif Wali Kelas (Kelas 1 s/d Kelas 6)
+  const [waliRows, setWaliRows] = useState<HomeroomTeacher[]>([]);
+  const [isSavingWali, setIsSavingWali] = useState(false);
+  const [waliSavedSuccess, setWaliSavedSuccess] = useState(false);
+  const [waliErrorMessage, setWaliErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ordered: HomeroomTeacher[] = CLASS_GRADES.map((grade) => {
+      const found = homeroomTeachers.find((t) => normalizeClassGrade(t.kelas) === grade);
+      return {
+        id: found?.id,
+        kelas: grade,
+        rawKelas: found?.rawKelas || grade,
+        nama_guru: found?.nama_guru || '',
+        nip: found?.nip || '',
+      };
+    });
+    setWaliRows(ordered);
+  }, [homeroomTeachers]);
+
+  const handleWaliFieldChange = (
+    kelas: string,
+    field: 'nama_guru' | 'nip',
+    value: string
+  ) => {
+    setWaliRows((prev) =>
+      prev.map((row) => (row.kelas === kelas ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const handleSaveWaliSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onSaveHomeroomTeachers) return;
+    setIsSavingWali(true);
+    setWaliSavedSuccess(false);
+    setWaliErrorMessage(null);
+    try {
+      const res = await onSaveHomeroomTeachers(waliRows);
+      if (res.success) {
+        setWaliSavedSuccess(true);
+        setTimeout(() => setWaliSavedSuccess(false), 4000);
+      } else {
+        setWaliErrorMessage(
+          res.error || 'Gagal menyimpan data Wali Kelas ke tabel wali_kelas di Supabase.'
+        );
+      }
+    } catch (err: any) {
+      setWaliErrorMessage(err?.message || 'Terjadi kesalahan saat menyimpan Wali Kelas.');
+    } finally {
+      setIsSavingWali(false);
+    }
+  };
 
   // Sync profile when school data arrives or is updated in real-time from Supabase
   useEffect(() => {
@@ -60,6 +122,13 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({
 
     try {
       const res = await onUpdateSchool(profile);
+      if (onSaveHomeroomTeachers && waliRows.length > 0) {
+        const waliRes = await onSaveHomeroomTeachers(waliRows);
+        if (waliRes.success) {
+          setWaliSavedSuccess(true);
+          setTimeout(() => setWaliSavedSuccess(false), 4000);
+        }
+      }
       if (res && res.success === false) {
         setErrorMessage(
           res.error || 'Gagal menyimpan profil ke database. Silakan periksa koneksi internet Anda.'
@@ -120,8 +189,18 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({
           </p>
         </div>
 
-        {onRefreshSchool && (
-          <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {onOpenHomeroomModal && (
+            <button
+              type="button"
+              onClick={onOpenHomeroomModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+            >
+              <GraduationCap className="w-4 h-4" />
+              <span>Pengaturan Wali Kelas</span>
+            </button>
+          )}
+          {onRefreshSchool && (
             <button
               type="button"
               onClick={onRefreshSchool}
@@ -131,8 +210,8 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({
               <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
               <span>Sinkronkan</span>
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Success Alert */}
@@ -410,32 +489,6 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({
               required
             />
           </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              Nama Guru / Wali Kelas *
-            </label>
-            <input
-              type="text"
-              value={profile.teacherName}
-              onChange={(e) => setProfile({ ...profile, teacherName: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              NIP Guru / Wali Kelas *
-            </label>
-            <input
-              type="text"
-              value={profile.teacherNip}
-              onChange={(e) => setProfile({ ...profile, teacherNip: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              required
-            />
-          </div>
         </div>
 
         <div className="flex items-center justify-end pt-2">
@@ -453,6 +506,107 @@ export const SchoolSettings: React.FC<SchoolSettingsProps> = ({
           </button>
         </div>
       </form>
+
+      {/* Pengaturan Wali Kelas (Kelas 1 s/d Kelas 6) */}
+      {onSaveHomeroomTeachers && (
+        <form
+          onSubmit={handleSaveWaliSubmit}
+          className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4"
+        >
+          <div className="border-b border-slate-100 pb-3.5 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold shrink-0">
+              <GraduationCap className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Pengaturan Wali Kelas (Kelas 1 s/d Kelas 6)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Atur nama guru dan NIP wali kelas untuk tanda tangan otomatis pada laporan rekapitulasi resmi.
+              </p>
+            </div>
+          </div>
+
+          {waliSavedSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center gap-2 text-emerald-900 text-xs">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>Data Wali Kelas berhasil disimpan!</strong> Nama guru dan NIP Kelas 1 s/d
+                Kelas 6 telah diperbarui.
+              </span>
+            </div>
+          )}
+
+          {waliErrorMessage && (
+            <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2 text-rose-900 text-xs">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1">{waliErrorMessage}</div>
+            </div>
+          )}
+
+          <div className="border border-slate-200 rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">
+                  <th className="py-2.5 px-4 w-28">Kelas</th>
+                  <th className="py-2.5 px-4">Nama Guru / Wali Kelas</th>
+                  <th className="py-2.5 px-4 w-64">NIP Wali Kelas</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-sm">
+                {waliRows.map((row) => (
+                  <tr key={row.kelas} className="hover:bg-slate-50/70">
+                    <td className="py-2.5 px-4 font-bold text-slate-800 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                        <Users className="w-3.5 h-3.5 text-emerald-600" />
+                        Kelas {row.kelas}
+                      </span>
+                    </td>
+                    <td className="py-2 px-4">
+                      <input
+                        type="text"
+                        value={row.nama_guru}
+                        onChange={(e) =>
+                          handleWaliFieldChange(row.kelas, 'nama_guru', e.target.value)
+                        }
+                        placeholder={`Nama Wali Kelas ${row.kelas}...`}
+                        className="w-full px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        required
+                      />
+                    </td>
+                    <td className="py-2 px-4">
+                      <input
+                        type="text"
+                        value={row.nip}
+                        onChange={(e) =>
+                          handleWaliFieldChange(row.kelas, 'nip', e.target.value)
+                        }
+                        placeholder="Contoh: 19870322 201101 2 015"
+                        className="w-full px-3 py-1.5 text-xs sm:text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-end pt-1">
+            <button
+              type="submit"
+              disabled={isSavingWali}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {isSavingWali ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              <span>{isSavingWali ? 'Menyimpan...' : 'Simpan Perubahan'}</span>
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* Profil Akun Login & Kredensial */}
       {onOpenAccountProfile && (

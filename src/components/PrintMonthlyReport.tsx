@@ -1,5 +1,9 @@
 import React from 'react';
-import { SchoolProfile, StudentMonthlyStat } from '../types';
+import { SchoolProfile, StudentMonthlyStat, HomeroomTeacher } from '../types';
+import {
+  normalizeClassGrade,
+  getCachedHomeroomTeachers,
+} from '../utils/homeroomTeacherService';
 
 interface PrintMonthlyReportProps {
   school: SchoolProfile;
@@ -8,6 +12,8 @@ interface PrintMonthlyReportProps {
   year: number;
   classGrade: string;
   effectiveDays: number;
+  homeroomTeacher?: HomeroomTeacher | null;
+  homeroomTeachers?: HomeroomTeacher[];
 }
 
 export const PrintMonthlyReport: React.FC<PrintMonthlyReportProps> = ({
@@ -17,7 +23,19 @@ export const PrintMonthlyReport: React.FC<PrintMonthlyReportProps> = ({
   year,
   classGrade,
   effectiveDays,
+  homeroomTeacher,
+  homeroomTeachers = [],
 }) => {
+  const normGrade = normalizeClassGrade(classGrade) || '1';
+  const listSource =
+    homeroomTeachers.length > 0 ? homeroomTeachers : getCachedHomeroomTeachers();
+  const matchedTeacher =
+    homeroomTeacher && normalizeClassGrade(homeroomTeacher.kelas) === normGrade
+      ? homeroomTeacher
+      : listSource.find((t) => normalizeClassGrade(t.kelas) === normGrade) || null;
+
+  const waliKelasName = matchedTeacher?.nama_guru || '-';
+  const waliKelasNip = matchedTeacher?.nip || '-';
   const totalHadir = stats.reduce((acc, s) => acc + s.hadir, 0);
   const totalSakit = stats.reduce((acc, s) => acc + s.sakit, 0);
   const totalIzin = stats.reduce((acc, s) => acc + s.izin, 0);
@@ -130,10 +148,10 @@ export const PrintMonthlyReport: React.FC<PrintMonthlyReportProps> = ({
           <p className="mb-1">
             {school.city}, <span id="print-monthly-sig-date"></span>
           </p>
-          <p className="font-bold">Guru / Wali Kelas {classGrade}</p>
+          <p className="font-bold">Wali Kelas {normGrade}</p>
           <div className="h-16"></div>
-          <p className="font-bold underline uppercase">{school.teacherName}</p>
-          <p>NIP. {school.teacherNip}</p>
+          <p className="font-bold underline uppercase">{waliKelasName}</p>
+          <p>NIP. {waliKelasNip}</p>
         </div>
       </div>
     </div>

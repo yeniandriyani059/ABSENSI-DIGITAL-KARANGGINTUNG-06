@@ -22,7 +22,12 @@ import {
   WaLog,
   EwsAlert,
   StudentEwsIndicator,
+  HomeroomTeacher,
 } from '../types';
+import {
+  getCachedHomeroomTeachers,
+  normalizeClassGrade,
+} from '../utils/homeroomTeacherService';
 import {
   formatPhoneForWaLink,
   getStudentParentPhone,
@@ -47,6 +52,7 @@ interface TeacherAlertCenterProps {
   onOpenManualWaChat?: (student: Student) => void;
   bkLetterTarget: StudentEwsIndicator | null;
   onSelectBkLetterTarget: (indicator: StudentEwsIndicator | null) => void;
+  homeroomTeachers?: HomeroomTeacher[];
 }
 
 export const TeacherAlertCenter: React.FC<TeacherAlertCenterProps> = ({
@@ -65,6 +71,7 @@ export const TeacherAlertCenter: React.FC<TeacherAlertCenterProps> = ({
   onOpenManualWaChat,
   bkLetterTarget,
   onSelectBkLetterTarget,
+  homeroomTeachers = [],
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'students' | 'walogs'>('students');
@@ -714,8 +721,18 @@ export const TeacherAlertCenter: React.FC<TeacherAlertCenterProps> = ({
                   <div>Wali Kelas {bkLetterTarget.classGrade},</div>
                   <div className="font-bold">Guru Kelas / Pembina BK</div>
                   <div className="h-14" />
-                  <div className="font-bold underline">{school.teacherName}</div>
-                  <div>NIP. {school.teacherNip}</div>
+                  {(() => {
+                    const normGrade = normalizeClassGrade(bkLetterTarget.classGrade) || '1';
+                    const list =
+                      homeroomTeachers.length > 0 ? homeroomTeachers : getCachedHomeroomTeachers();
+                    const wali = list.find((t) => normalizeClassGrade(t.kelas) === normGrade);
+                    return (
+                      <>
+                        <div className="font-bold underline">{wali?.nama_guru || '-'}</div>
+                        <div>NIP. {wali?.nip || '-'}</div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

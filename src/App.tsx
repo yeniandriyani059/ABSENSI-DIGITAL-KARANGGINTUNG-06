@@ -33,6 +33,7 @@ import {
   WaLog,
   EwsAlert,
   StudentEwsIndicator,
+  HomeroomTeacher,
 } from './types';
 import {
   INITIAL_HOLIDAYS,
@@ -49,6 +50,7 @@ import { StudentIDCards } from './components/StudentIDCards';
 import { BarcodeScanner } from './components/BarcodeScanner';
 import { LoginPortal } from './components/LoginPortal';
 import { AccountProfileModal } from './components/AccountProfileModal';
+import { HomeroomTeachersModal } from './components/HomeroomTeachersModal';
 import { TeacherAlertCenter } from './components/TeacherAlertCenter';
 import { exportElementToPdf } from './utils/pdfExport';
 import {
@@ -57,6 +59,11 @@ import {
   subscribeSchoolProfileRealtime,
   getCachedSchoolProfile,
 } from './utils/schoolProfileService';
+import {
+  fetchHomeroomTeachersFromSupabase,
+  saveHomeroomTeachersToSupabase,
+  getCachedHomeroomTeachers,
+} from './utils/homeroomTeacherService';
 import {
   getOfflineQueue,
   enqueueOfflineAttendance,
@@ -328,6 +335,31 @@ export default function App() {
   const [schoolRowId, setSchoolRowId] = useState<any>(1);
   const [isSchoolTableReady, setIsSchoolTableReady] = useState<boolean>(true);
   const [schoolSyncError, setSchoolSyncError] = useState<string | null>(null);
+  const [homeroomTeachers, setHomeroomTeachers] = useState<HomeroomTeacher[]>(() =>
+    getCachedHomeroomTeachers()
+  );
+  const [isHomeroomModalOpen, setIsHomeroomModalOpen] = useState<boolean>(false);
+
+  const fetchHomeroomTeachers = useCallback(async () => {
+    try {
+      const res = await fetchHomeroomTeachersFromSupabase();
+      setHomeroomTeachers(res.teachers);
+    } catch (err) {
+      console.warn('Error fetching wali_kelas from Supabase:', err);
+    }
+  }, []);
+
+  const handleSaveHomeroomTeachers = useCallback(
+    async (updatedTeachers: HomeroomTeacher[]) => {
+      const res = await saveHomeroomTeachersToSupabase(updatedTeachers);
+      setHomeroomTeachers(res.teachers);
+      if (res.success) {
+        showToast('Data Wali Kelas berhasil disimpan ke tabel wali_kelas!', 'success');
+      }
+      return { success: res.success, error: res.error };
+    },
+    [showToast]
+  );
 
   const fetchSchoolProfile = useCallback(async () => {
     try {
@@ -348,8 +380,9 @@ export default function App() {
   useEffect(() => {
     fetchStudentsAndRecords();
     fetchSchoolProfile();
+    fetchHomeroomTeachers();
 
-    // Berlangganan (Realtime Subscription) perubahan tabel profil_sekolah, siswa (foto_url), dan presensi dari Supabase
+    // Berlangganan (Realtime Subscription) perubahan tabel profil_sekolah, siswa (foto_url), presensi, dan wali_kelas dari Supabase
     const unsubscribe = subscribeSchoolProfileRealtime((updatedProfile) => {
       setSchool(updatedProfile);
     });
@@ -370,13 +403,20 @@ export default function App() {
           fetchStudentsAndRecords({ silent: true });
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'wali_kelas' },
+        () => {
+          fetchHomeroomTeachers();
+        }
+      )
       .subscribe();
 
     return () => {
       unsubscribe();
       supabase.removeChannel(dataChannel);
     };
-  }, [fetchStudentsAndRecords, fetchSchoolProfile]);
+  }, [fetchStudentsAndRecords, fetchSchoolProfile, fetchHomeroomTeachers]);
 
   const [account, setAccount] = useState<AdminAccount>(() => getStoredAdminAccount());
 
@@ -558,11 +598,13 @@ export default function App() {
     monthName: string;
     year: number;
     effectiveDays: number;
+    homeroomTeacher?: HomeroomTeacher | null;
   }>({
     stats: [],
     monthName: '',
     year: new Date().getFullYear(),
     effectiveDays: 20,
+    homeroomTeacher: null,
   });
 
   // Replaces the old local storage syncs - we don't save students or records here anymore
@@ -1210,9 +1252,10 @@ export default function App() {
       stats: StudentMonthlyStat[],
       monthName: string,
       year: number,
-      effectiveDays: number
+      effectiveDays: number,
+      homeroomTeacher?: HomeroomTeacher | null
     ) => {
-      setPrintData({ stats, monthName, year, effectiveDays });
+      setPrintData({ stats, monthName, year, effectiveDays, homeroomTeacher });
 
       setTimeout(() => {
         const today = new Date();
@@ -1241,9 +1284,10 @@ export default function App() {
       stats: StudentMonthlyStat[],
       monthName: string,
       year: number,
-      effectiveDays: number
+      effectiveDays: number,
+      homeroomTeacher?: HomeroomTeacher | null
     ) => {
-      setPrintData({ stats, monthName, year, effectiveDays });
+      setPrintData({ stats, monthName, year, effectiveDays, homeroomTeacher });
 
       setTimeout(async () => {
         const today = new Date();
@@ -1311,6 +1355,15 @@ export default function App() {
         onLogout={handleLogout}
       />
 
+      {/* Modal Pengaturan Wali Kelas (Tabel wali_kelas Kelas 1 s/d Kelas 6) */}
+      <HomeroomTeachersModal
+        isOpen={isHomeroomModalOpen}
+        onClose={() => setIsHomeroomModalOpen(false)}
+        teachers={homeroomTeachers}
+        onSaveTeachers={handleSaveHomeroomTeachers}
+        onRefreshTeachers={fetchHomeroomTeachers}
+      />
+
       {/* Container for Printable Report */}
       <PrintMonthlyReport
         school={school}
@@ -1319,6 +1372,8 @@ export default function App() {
         year={printData.year}
         classGrade={selectedClass}
         effectiveDays={printData.effectiveDays}
+        homeroomTeacher={printData.homeroomTeacher}
+        homeroomTeachers={homeroomTeachers}
       />
 
       {/* Toast Notification (Offline-First & Background Sync Feedback) */}
@@ -1837,6 +1892,7 @@ export default function App() {
             onOpenManualWaChat={handleOpenManualWaChat}
             bkLetterTarget={bkLetterTarget}
             onSelectBkLetterTarget={setBkLetterTarget}
+            homeroomTeachers={homeroomTeachers}
           />
 
           {activeTab === 'daily' && (
@@ -1896,6 +1952,8 @@ export default function App() {
               onSendWaWarning={(ind) =>
                 handleSendEwsWaNotification(ind, ind.badges[0]?.fullTitle || 'Peringatan EWS')
               }
+              homeroomTeachers={homeroomTeachers}
+              onOpenHomeroomModal={() => setIsHomeroomModalOpen(true)}
             />
           )}
 
@@ -1935,6 +1993,9 @@ export default function App() {
               isTableReady={isSchoolTableReady}
               syncError={schoolSyncError}
               onRefreshSchool={fetchSchoolProfile}
+              homeroomTeachers={homeroomTeachers}
+              onSaveHomeroomTeachers={handleSaveHomeroomTeachers}
+              onOpenHomeroomModal={() => setIsHomeroomModalOpen(true)}
             />
           )}
         </main>

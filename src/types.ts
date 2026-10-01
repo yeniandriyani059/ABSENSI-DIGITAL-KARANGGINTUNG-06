@@ -156,3 +156,12 @@ export interface AdminAccount {
   password: string;
   recoveryEmail: string;
 }
+
+export interface HomeroomTeacher {
+  id?: any;
+  kelas: string; // '1' | '2' | '3' | '4' | '5' | '6'
+  rawKelas?: string;
+  nama_guru: string;
+  nip: string;
+}
+

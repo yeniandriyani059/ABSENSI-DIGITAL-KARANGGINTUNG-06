@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Printer,
   Download,
@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   FileDown,
   FileSpreadsheet,
+  GraduationCap,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -19,8 +20,13 @@ import {
   SchoolProfile,
   StudentMonthlyStat,
   StudentEwsIndicator,
+  HomeroomTeacher,
 } from '../types';
 import { EwsStatusBadge } from './EwsStatusBadge';
+import {
+  fetchHomeroomTeacherByClass,
+  normalizeClassGrade,
+} from '../utils/homeroomTeacherService';
 
 interface MonthlySummaryProps {
   students: Student[];
@@ -29,11 +35,25 @@ interface MonthlySummaryProps {
   school: SchoolProfile;
   selectedClass: string;
   onSelectClass: (c: string) => void;
-  onPrintReport: (stats: StudentMonthlyStat[], monthName: string, year: number, effectiveDays: number) => void;
-  onExportPdfReport?: (stats: StudentMonthlyStat[], monthName: string, year: number, effectiveDays: number) => void;
+  onPrintReport: (
+    stats: StudentMonthlyStat[],
+    monthName: string,
+    year: number,
+    effectiveDays: number,
+    homeroomTeacher?: HomeroomTeacher | null
+  ) => void;
+  onExportPdfReport?: (
+    stats: StudentMonthlyStat[],
+    monthName: string,
+    year: number,
+    effectiveDays: number,
+    homeroomTeacher?: HomeroomTeacher | null
+  ) => void;
   ewsIndicatorsMap?: Map<string, StudentEwsIndicator>;
   onPrintBkLetter?: (indicator: StudentEwsIndicator) => void;
   onSendWaWarning?: (indicator: StudentEwsIndicator) => void;
+  homeroomTeachers?: HomeroomTeacher[];
+  onOpenHomeroomModal?: () => void;
 }
 
 const MONTH_NAMES = [
@@ -53,11 +73,48 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
   ewsIndicatorsMap,
   onPrintBkLetter,
   onSendWaWarning,
+  homeroomTeachers = [],
+  onOpenHomeroomModal,
 }) => {
   const today = new Date();
   const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth()); // 0-indexed
   const [selectedYear, setSelectedYear] = useState<number>(today.getFullYear());
   const [searchTerm, setSearchTerm] = useState('');
+  const [dynamicHomeroomTeacher, setDynamicHomeroomTeacher] = useState<HomeroomTeacher | null>(null);
+
+  // 2. BACA DATA WALI KELAS SECARA DINAMIS DARI TABEL `wali_kelas` SETIAP KALI PILIH KELAS BERUBAH
+  useEffect(() => {
+    let isMounted = true;
+    const normGrade = normalizeClassGrade(selectedClass) || '1';
+
+    // Gunakan data dari state homeroomTeachers terlebih dahulu sambil mengambil terbaru dari Supabase
+    const fromProps =
+      homeroomTeachers.find((t) => normalizeClassGrade(t.kelas) === normGrade) || null;
+    if (fromProps) {
+      setDynamicHomeroomTeacher(fromProps);
+    }
+
+    fetchHomeroomTeacherByClass(normGrade).then((fetched) => {
+      if (isMounted && fetched) {
+        setDynamicHomeroomTeacher(fetched);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedClass, homeroomTeachers]);
+
+  const normSelectedGrade = normalizeClassGrade(selectedClass) || '1';
+  const fallbackFromList =
+    homeroomTeachers.find((t) => normalizeClassGrade(t.kelas) === normSelectedGrade) || null;
+  const resolvedWali =
+    dynamicHomeroomTeacher && normalizeClassGrade(dynamicHomeroomTeacher.kelas) === normSelectedGrade
+      ? dynamicHomeroomTeacher
+      : fallbackFromList;
+
+  const activeWaliName = resolvedWali?.nama_guru || '-';
+  const activeWaliNip = resolvedWali?.nip || '-';
 
   // Filter students by selected class
   const classStudents = useMemo(() => {
@@ -163,7 +220,13 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
 
   // Trigger print handler
   const handlePrint = () => {
-    onPrintReport(stats, MONTH_NAMES[selectedMonth], selectedYear, effectiveDays);
+    onPrintReport(
+      stats,
+      MONTH_NAMES[selectedMonth],
+      selectedYear,
+      effectiveDays,
+      resolvedWali
+    );
   };
 
   // Excel Export (.xlsx)
@@ -272,6 +335,18 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
 
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
+            {onOpenHomeroomModal && (
+              <button
+                type="button"
+                onClick={onOpenHomeroomModal}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
+                title="Kelola Nama Guru & NIP Wali Kelas (Kelas 1 s/d Kelas 6)"
+              >
+                <GraduationCap className="w-4 h-4 text-emerald-600" />
+                Pengaturan Wali Kelas
+              </button>
+            )}
+
             <button
               onClick={handleExportExcel}
               className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
@@ -293,7 +368,13 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
             {onExportPdfReport && (
               <button
                 onClick={() =>
-                  onExportPdfReport(stats, MONTH_NAMES[selectedMonth], selectedYear, effectiveDays)
+                  onExportPdfReport(
+                    stats,
+                    MONTH_NAMES[selectedMonth],
+                    selectedYear,
+                    effectiveDays,
+                    resolvedWali
+                  )
                 }
                 type="button"
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors cursor-pointer"
@@ -444,9 +525,17 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
 
       {/* Main Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-          <div className="font-semibold text-slate-800 text-sm">
-            Tabel Rekapitulasi: Kelas {selectedClass} — {MONTH_NAMES[selectedMonth]} {selectedYear}
+        <div className="p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-semibold text-slate-800 text-sm">
+              Tabel Rekapitulasi: Kelas {selectedClass} — {MONTH_NAMES[selectedMonth]} {selectedYear}
+            </div>
+            <div className="text-xs text-emerald-700 font-medium mt-0.5 flex items-center gap-1.5">
+              <GraduationCap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>
+                Wali Kelas {selectedClass}: <strong>{activeWaliName}</strong> (NIP. {activeWaliNip})
+              </span>
+            </div>
           </div>
           <div className="text-xs text-slate-500">
             Hari Efektif: <span className="font-semibold text-slate-700">{effectiveDays} hari</span>
@@ -557,6 +646,32 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pratinjau Lembar Tanda Tangan Resmi (Kepala Sekolah & Wali Kelas Dinamis) */}
+        <div className="p-5 bg-slate-50/70 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs text-slate-700">
+          <div className="text-center sm:border-r border-slate-200 sm:pr-4">
+            <p className="text-slate-500 mb-0.5">Mengetahui,</p>
+            <p className="font-bold text-slate-900">Kepala Sekolah {school.schoolName}</p>
+            <div className="h-10" />
+            <p className="font-bold underline uppercase text-slate-900">{school.principalName}</p>
+            <p className="font-mono text-[11px] text-slate-600">NIP. {school.principalNip}</p>
+          </div>
+
+          <div className="text-center sm:pl-4">
+            <p className="text-slate-500 mb-0.5">
+              {school.city},{' '}
+              {new Date().toLocaleDateString('id-ID', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </p>
+            <p className="font-bold text-emerald-800">Wali Kelas {selectedClass}</p>
+            <div className="h-10" />
+            <p className="font-bold underline uppercase text-slate-900">{activeWaliName}</p>
+            <p className="font-mono text-[11px] text-slate-600">NIP. {activeWaliNip}</p>
+          </div>
         </div>
       </div>
     </div>
