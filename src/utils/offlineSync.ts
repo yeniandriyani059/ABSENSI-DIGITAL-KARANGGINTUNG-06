@@ -1,9 +1,66 @@
 import { supabase } from '../supabaseClient';
-import { AttendanceRecord, AttendanceStatus, Student } from '../types';
+import { AttendanceRecord, AttendanceStatus, Holiday, Student } from '../types';
 
 export const OFFLINE_QUEUE_KEY = 'offline_sync_queue';
 export const CACHED_STUDENTS_KEY = 'sdn06_cached_students';
 export const CACHED_RECORDS_KEY = 'sdn06_cached_records';
+
+/**
+ * Menormalisasi status kehadiran agar nilai singkatan ('H', 'T', 'S', 'I', 'A')
+ * maupun teks penuh selalu konsisten menjadi 'Hadir' | 'Terlambat' | 'Sakit' | 'Izin' | 'Alpa'.
+ */
+export function normalizeAttendanceStatus(raw: any): AttendanceStatus {
+  const str = String(raw || '').trim();
+  const lower = str.toLowerCase();
+  if (str === 'H' || lower === 'hadir') return 'Hadir';
+  if (str === 'T' || lower === 'terlambat' || lower === 'telat') return 'Terlambat';
+  if (str === 'S' || lower === 'sakit') return 'Sakit';
+  if (str === 'I' || lower === 'izin' || lower === 'ijin') return 'Izin';
+  if (str === 'A' || lower === 'alpa' || lower === 'alpha') return 'Alpa';
+  if (lower.includes('tindak lanjut')) return 'Butuh Tindak Lanjut';
+  return 'Hadir';
+}
+
+/**
+ * Mengonversi timestamp ISO dari Supabase (`created_at`) ke tanggal & jam WIB (UTC+7) secara akurat.
+ */
+export function extractWibDateAndTime(isoString?: string, fallbackDate?: string): {
+  dateStr: string;
+  timeStr: string;
+} {
+  if (!isoString) {
+    const now = new Date(Date.now() + 7 * 3600 * 1000);
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(now.getUTCDate()).padStart(2, '0');
+    return {
+      dateStr: fallbackDate || `${y}-${m}-${d}`,
+      timeStr: '07:00:00',
+    };
+  }
+
+  const parsed = new Date(isoString);
+  if (Number.isNaN(parsed.getTime())) {
+    return {
+      dateStr: fallbackDate || String(isoString).slice(0, 10),
+      timeStr: '07:00:00',
+    };
+  }
+
+  // Tambahkan offset +07:00 (WIB) agar pembacaan tanggal tidak meleset ke hari sebelumnya saat jam < 07:00 pagi
+  const wibTime = new Date(parsed.getTime() + 7 * 3600 * 1000);
+  const y = wibTime.getUTCFullYear();
+  const m = String(wibTime.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(wibTime.getUTCDate()).padStart(2, '0');
+  const hh = String(wibTime.getUTCHours()).padStart(2, '0');
+  const mm = String(wibTime.getUTCMinutes()).padStart(2, '0');
+  const ss = String(wibTime.getUTCSeconds()).padStart(2, '0');
+
+  return {
+    dateStr: fallbackDate || `${y}-${m}-${d}`,
+    timeStr: `${hh}:${mm}:${ss}`,
+  };
+}
 
 export interface OfflineAttendanceQueueItem {
   queueId: string; // unique key per student + date: `${siswa_id}_${tanggal}`
@@ -182,6 +239,140 @@ export function setCachedRecords(records: AttendanceRecord[]): void {
 }
 
 /**
+ * Menyimpan / memperbarui rekaman presensi (Hadir, Terlambat, Sakit, Izin, Alpa) ke tabel `presensi` di Supabase
+ * dengan memisahkan baris UPDATE (yang sudah memiliki ID di database) dan baris INSERT (baru),
+ * sehingga tidak pernah gagal akibat perbedaan key objek (PGRST102) dan tidak menimbulkan duplikasi data.
+ */
+export async function upsertAttendanceRecordsToSupabase(
+  recordsToSave: AttendanceRecord[]
+): Promise<void> {
+  if (recordsToSave.length === 0) return;
+
+  // Kumpulkan tanggal unik dari rekaman yang akan disimpan
+  const uniqueDates = Array.from(new Set(recordsToSave.map((r) => r.date).filter(Boolean)));
+
+  // Peta rekaman yang sudah ada di Supabase berdasarkan `${nisn_siswa}_${date}`
+  const existingDbMap = new Map<string, { id: any; created_at: string }>();
+
+  for (const dStr of uniqueDates) {
+    const startWib = `${dStr}T00:00:00+07:00`;
+    const endWib = `${dStr}T23:59:59+07:00`;
+    const { data: existingRows, error: fetchErr } = await supabase
+      .from('presensi')
+      .select('*')
+      .gte('created_at', startWib)
+      .lte('created_at', endWib)
+      .order('id', { ascending: true });
+
+    if (!fetchErr && Array.isArray(existingRows)) {
+      existingRows.forEach((row: any) => {
+        const studentKey = String(row.nisn_siswa || row.siswa_id || '');
+        if (studentKey) {
+          existingDbMap.set(`${studentKey}_${dStr}`, {
+            id: row.id,
+            created_at: row.created_at,
+          });
+        }
+      });
+    }
+  }
+
+  // Deduplikasi input berdasarkan `${studentId}_${date}`
+  const dedupedInput = new Map<string, AttendanceRecord>();
+  recordsToSave.forEach((r) => {
+    dedupedInput.set(`${r.studentId}_${r.date}`, {
+      ...r,
+      status: normalizeAttendanceStatus(r.status),
+    });
+  });
+
+  const toUpdateNisnSchema: Array<{
+    id: any;
+    nisn_siswa: string;
+    created_at: string;
+    status: AttendanceStatus;
+  }> = [];
+
+  const toInsertNisnSchema: Array<{
+    nisn_siswa: string;
+    created_at: string;
+    status: AttendanceStatus;
+  }> = [];
+
+  dedupedInput.forEach((r, key) => {
+    const cleanTime = (r.scannedAt || '07:00:00').replace(/\./g, ':') || '07:00:00';
+    const computedCreatedAt = `${r.date}T${cleanTime}+07:00`;
+    const existing = existingDbMap.get(key);
+    const hasValidRecordId =
+      typeof r.id === 'number' ||
+      (typeof r.id === 'string' && r.id.trim() !== '' && !r.id.startsWith('att-'));
+
+    const resolvedId = existing?.id ?? (hasValidRecordId ? r.id : undefined);
+
+    if (resolvedId !== undefined) {
+      toUpdateNisnSchema.push({
+        id: resolvedId,
+        nisn_siswa: r.studentId,
+        created_at: existing?.created_at || computedCreatedAt,
+        status: r.status,
+      });
+    } else {
+      toInsertNisnSchema.push({
+        nisn_siswa: r.studentId,
+        created_at: computedCreatedAt,
+        status: r.status,
+      });
+    }
+  });
+
+  // 1. Jalankan UPDATE untuk baris yang sudah ada di tabel `presensi`
+  if (toUpdateNisnSchema.length > 0) {
+    const { error: updateErr } = await supabase
+      .from('presensi')
+      .upsert(toUpdateNisnSchema, { onConflict: 'id' })
+      .select();
+
+    if (updateErr) {
+      // Fallback jika skema menggunakan siswa_id & tanggal
+      const altUpdate = toUpdateNisnSchema.map((u) => ({
+        id: u.id,
+        siswa_id: u.nisn_siswa,
+        tanggal: extractWibDateAndTime(u.created_at).dateStr,
+        status: u.status,
+        created_at: u.created_at,
+      }));
+      const { error: altErr } = await supabase
+        .from('presensi')
+        .upsert(altUpdate, { onConflict: 'id' })
+        .select();
+      if (altErr) throw updateErr;
+    }
+  }
+
+  // 2. Jalankan INSERT murni (tanpa properti `id`) untuk baris baru
+  if (toInsertNisnSchema.length > 0) {
+    const { error: insertErr } = await supabase
+      .from('presensi')
+      .insert(toInsertNisnSchema)
+      .select();
+
+    if (insertErr) {
+      const altInsert = toInsertNisnSchema.map((ins) => ({
+        siswa_id: ins.nisn_siswa,
+        tanggal: extractWibDateAndTime(ins.created_at).dateStr,
+        status: ins.status,
+        created_at: ins.created_at,
+      }));
+      const { error: altInsErr } = await supabase
+        .from('presensi')
+        .insert(altInsert)
+        .select();
+      if (altInsErr) throw insertErr;
+    }
+  }
+}
+
+/**
  * Memproses antrean presensi di `localStorage` (`offline_sync_queue`) dan mengirimkannya ke Supabase.
  * Jika berhasil tersimpan di database cloud, antrean yang berhasil akan dihapus dari `localStorage`.
  */
@@ -201,48 +392,17 @@ export async function syncOfflineQueueToSupabase(): Promise<{
   }
 
   try {
-    const primaryPayloads = queue.map((item) => {
-      const dbPayload: Record<string, any> = {
-        siswa_id: item.payload.siswa_id || item.payload.nisn_siswa || item.record.studentId,
-        tanggal: item.payload.tanggal || item.record.date,
-        status: item.payload.status,
-        created_at: item.payload.created_at,
-      };
-      if (
-        typeof item.payload.id === 'number' ||
-        (typeof item.payload.id === 'string' && !item.payload.id.startsWith('att-'))
-      ) {
-        dbPayload.id = item.payload.id;
-      }
-      return dbPayload;
-    });
+    const recordsToSync: AttendanceRecord[] = queue.map((item) => ({
+      id: item.payload.id ?? item.record.id,
+      studentId: item.payload.siswa_id || item.payload.nisn_siswa || item.record.studentId,
+      date: item.payload.tanggal || item.record.date,
+      status: normalizeAttendanceStatus(item.payload.status || item.record.status),
+      scannedAt: item.record.scannedAt || '07:00:00',
+    }));
 
-    const { error } = await supabase.from('presensi').upsert(primaryPayloads).select();
-    if (error) {
-      // Fallback jika skema tabel masih menggunakan nisn_siswa
-      const fallbackPayloads = queue.map((item) => {
-        const dbPayload: Record<string, any> = {
-          nisn_siswa: item.payload.siswa_id || item.payload.nisn_siswa || item.record.studentId,
-          created_at: item.payload.created_at,
-          status: item.payload.status,
-        };
-        if (
-          typeof item.payload.id === 'number' ||
-          (typeof item.payload.id === 'string' && !item.payload.id.startsWith('att-'))
-        ) {
-          dbPayload.id = item.payload.id;
-        }
-        return dbPayload;
-      });
-      const { error: fallbackError } = await supabase
-        .from('presensi')
-        .upsert(fallbackPayloads)
-        .select();
-      if (fallbackError) throw fallbackError;
-    }
+    await upsertAttendanceRecordsToSupabase(recordsToSync);
 
     // Hapus item yang sudah berhasil disinkronkan
-    // (Cek apakah ada item baru yang masuk saat request sedang berjalan)
     const latestQueue = getOfflineQueue();
     const syncedIds = new Set(queue.map((q) => `${q.queueId}_${q.queuedAt}`));
     const remaining = latestQueue.filter((q) => !syncedIds.has(`${q.queueId}_${q.queuedAt}`));

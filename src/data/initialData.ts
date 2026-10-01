@@ -40,14 +40,8 @@ export const INITIAL_STUDENTS: Student[] = [
   { id: 'std-19', nisn: '0123456719', name: 'Eko Prasetyo', gender: 'L', classGrade: '6', parentPhone: '081234567819' },
 ];
 
-export const INITIAL_HOLIDAYS: Holiday[] = [
-  { id: 'hol-1', date: '2026-08-17', reason: 'Hari Proklamasi Kemerdekaan RI' },
-  { id: 'hol-2', date: '2026-09-05', reason: 'Maulid Nabi Muhammad SAW' },
-  { id: 'hol-3', date: '2026-10-01', reason: 'Hari Kesaktian Pancasila' },
-  { id: 'hol-4', date: '2026-11-10', reason: 'Hari Pahlawan Nasional' },
-  { id: 'hol-5', date: '2026-11-25', reason: 'Hari Guru Nasional' },
-  { id: 'hol-6', date: '2026-12-25', reason: 'Hari Raya Natal & Cuti Bersama' },
-];
+// Data Hari Libur kini diambil dan disimpan langsung pada tabel `holidays` di Supabase
+export const INITIAL_HOLIDAYS: Holiday[] = [];
 
 // Generate attendance for the current month dates up to today
 export function generateInitialAttendance(): AttendanceRecord[] {

@@ -30,6 +30,7 @@ interface BarcodeScannerProps {
   school: SchoolProfile;
   onRecordAttendance: (record: AttendanceRecord) => void;
   onDeleteRecord?: (id: string, studentId?: string, date?: string) => void;
+  onDeleteHoliday?: (id: string, date?: string) => void;
   initialScanValue?: string;
 }
 
@@ -40,6 +41,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   school,
   onRecordAttendance,
   onDeleteRecord,
+  onDeleteHoliday,
   initialScanValue = '',
 }) => {
   const getTodayStr = () => {
@@ -514,10 +516,11 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
               disabled={scanMode === 'pulang'}
             >
-              <option value="H">Hadir (H) - Terjadwal</option>
-              <option value="S">Sakit (S) - Surat Sakit</option>
-              <option value="I">Izin (I) - Izin Tertulis</option>
-              <option value="A">Alpa (A) - Tanpa Keterangan</option>
+              <option value="Hadir">Hadir (H) - Terjadwal</option>
+              <option value="Terlambat">Terlambat (T) - Hadir Terlambat</option>
+              <option value="Sakit">Sakit (S) - Surat Sakit</option>
+              <option value="Izin">Izin (I) - Izin Tertulis</option>
+              <option value="Alpa">Alpa (A) - Tanpa Keterangan</option>
             </select>
           </div>
 
@@ -557,6 +560,17 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             <p className="text-xs text-rose-700 mt-1 leading-relaxed">
               SD Negeri Karanggintung 06 menerapkan sistem <strong>5 hari sekolah</strong> (Senin s.d. Jumat, dengan hari Sabtu dan Minggu libur). Pemindaian barcode presensi otomatis dinonaktifkan pada hari libur.
             </p>
+            {activeHoliday && onDeleteHoliday && (
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={() => onDeleteHoliday(String(activeHoliday.id), activeHoliday.date)}
+                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Hapus Hari Libur Ini &amp; Buka Kunci Presensi
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

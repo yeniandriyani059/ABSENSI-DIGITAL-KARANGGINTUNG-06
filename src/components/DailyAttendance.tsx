@@ -20,6 +20,8 @@ import {
 } from '../types';
 import { EwsStatusBadge } from './EwsStatusBadge';
 import { buildClickToChatWaUrl } from '../utils/ewsAndWaService';
+import { normalizeAttendanceStatus } from '../utils/offlineSync';
+import { normalizeClassGrade } from '../utils/homeroomTeacherService';
 
 interface DailyAttendanceProps {
   students: Student[];
@@ -30,6 +32,7 @@ interface DailyAttendanceProps {
   onSelectClass: (c: string) => void;
   onSaveAttendance: (records: AttendanceRecord[]) => void;
   onOpenScanner?: () => void;
+  onDeleteHoliday?: (id: string, date?: string) => void;
   ewsIndicatorsMap?: Map<string, StudentEwsIndicator>;
   onPrintBkLetter?: (indicator: StudentEwsIndicator) => void;
   onSendWaWarning?: (indicator: StudentEwsIndicator) => void;
@@ -45,6 +48,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
   onSelectClass,
   onSaveAttendance,
   onOpenScanner,
+  onDeleteHoliday,
   ewsIndicatorsMap,
   onPrintBkLetter,
   onSendWaWarning,
@@ -62,7 +66,8 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
 
   // Filter students by selected class
   const classStudents = useMemo(() => {
-    return students.filter((s) => s.classGrade === selectedClass);
+    const normSelected = normalizeClassGrade(selectedClass);
+    return students.filter((s) => normalizeClassGrade(s.classGrade) === normSelected);
   }, [students, selectedClass]);
 
   // Check if date is Weekend (Sabtu / Minggu pada 5 hari sekolah)
@@ -96,21 +101,34 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
   const [localStatuses, setLocalStatuses] = useState<{
     [studentId: string]: { status: AttendanceStatus };
   }>({});
+  const isDirtyRef = React.useRef<boolean>(false);
 
-  // Sync localStatuses when date or class changes
+  // Reset dirty flag when date or class changes
   React.useEffect(() => {
-    const nextStatuses: { [studentId: string]: { status: AttendanceStatus } } = {};
-    classStudents.forEach((student) => {
-      const rec = existingMap.get(student.nisn);
-      nextStatuses[student.id] = {
-        status: rec ? rec.status : 'Hadir',
-      };
-    });
-    setLocalStatuses(nextStatuses);
+    isDirtyRef.current = false;
     setSaveSuccess(false);
+  }, [currentDate, selectedClass]);
+
+  // Sync localStatuses when date, class, or server records change (without overwriting unsaved edits)
+  React.useEffect(() => {
+    setLocalStatuses((prev) => {
+      const nextStatuses: { [studentId: string]: { status: AttendanceStatus } } = {};
+      classStudents.forEach((student) => {
+        const rec = existingMap.get(student.nisn) || existingMap.get(String(student.id));
+        if (isDirtyRef.current && prev[student.id]) {
+          nextStatuses[student.id] = prev[student.id];
+        } else {
+          nextStatuses[student.id] = {
+            status: rec ? normalizeAttendanceStatus(rec.status) : 'Hadir',
+          };
+        }
+      });
+      return nextStatuses;
+    });
   }, [currentDate, selectedClass, classStudents, existingMap]);
 
   const handleStatusChange = (studentId: string, status: AttendanceStatus) => {
+    isDirtyRef.current = true;
     setLocalStatuses((prev) => ({
       ...prev,
       [studentId]: {
@@ -122,6 +140,7 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
   };
 
   const handleMarkAllHadir = () => {
+    isDirtyRef.current = true;
     setLocalStatuses((prev) => {
       const updated = { ...prev };
       classStudents.forEach((s) => {
@@ -137,16 +156,17 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
   const handleSave = () => {
     const newRecords: AttendanceRecord[] = classStudents.map((s) => {
       const cur = localStatuses[s.id] || { status: 'Hadir' };
-      const existingRec = existingMap.get(s.nisn);
+      const existingRec = existingMap.get(s.nisn) || existingMap.get(String(s.id));
       return {
         id: existingRec?.id || `att-${s.nisn}-${currentDate}`,
         studentId: s.nisn,
         date: currentDate,
-        status: cur.status,
-        scannedAt: existingRec?.scannedAt || '',
+        status: normalizeAttendanceStatus(cur.status),
+        scannedAt: existingRec?.scannedAt || '07:00:00',
       };
     });
 
+    isDirtyRef.current = false;
     onSaveAttendance(newRecords);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 4000);
@@ -260,11 +280,22 @@ export const DailyAttendance: React.FC<DailyAttendanceProps> = ({
       )}
 
       {activeHoliday && (
-        <div className="p-3.5 bg-sky-50 border border-sky-200 rounded-xl flex items-center gap-2.5 text-sky-800 text-xs">
-          <Sparkles className="w-4 h-4 shrink-0 text-sky-600" />
-          <span>
-            <strong>Kalender Akademik:</strong> Tanggal ini tercatat sebagai hari libur: &quot;{activeHoliday.reason}&quot;.
-          </span>
+        <div className="p-3.5 bg-sky-50 border border-sky-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-sky-800 text-xs">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-4 h-4 shrink-0 text-sky-600" />
+            <span>
+              <strong>Kalender Akademik:</strong> Tanggal ini tercatat sebagai hari libur: &quot;{activeHoliday.reason}&quot;.
+            </span>
+          </div>
+          {onDeleteHoliday && (
+            <button
+              type="button"
+              onClick={() => onDeleteHoliday(String(activeHoliday.id), activeHoliday.date)}
+              className="px-3 py-1.5 rounded-lg bg-white hover:bg-sky-100 text-sky-800 border border-sky-300 font-semibold text-xs transition-colors cursor-pointer shrink-0"
+            >
+              Hapus Hari Libur &amp; Aktifkan Rekap
+            </button>
+          )}
         </div>
       )}
 

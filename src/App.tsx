@@ -36,7 +36,6 @@ import {
   HomeroomTeacher,
 } from './types';
 import {
-  INITIAL_HOLIDAYS,
   INITIAL_SCHOOL_PROFILE,
   INITIAL_STUDENTS,
 } from './data/initialData';
@@ -74,6 +73,9 @@ import {
   getCachedRecords,
   setCachedRecords,
   syncOfflineQueueToSupabase,
+  normalizeAttendanceStatus,
+  extractWibDateAndTime,
+  upsertAttendanceRecordsToSupabase,
 } from './utils/offlineSync';
 import {
   CRON_LAST_RUN_DATE_KEY,
@@ -224,7 +226,7 @@ export default function App() {
     try {
       const [studentsRes, attendanceRes] = await Promise.all([
         supabase.from('siswa').select('*'),
-        supabase.from('presensi').select('*'),
+        supabase.from('presensi').select('*').order('id', { ascending: true }).limit(5000),
       ]);
 
       if (studentsRes.error) throw studentsRes.error;
@@ -245,23 +247,25 @@ export default function App() {
         setCachedStudents(mappedStudents);
       }
 
-      const mappedRecords: AttendanceRecord[] = (attendanceRes.data || []).map((db: DbAttendance) => {
-        const d = db.created_at ? new Date(db.created_at) : new Date();
-        const dateStr =
-          db.tanggal ||
-          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-            d.getDate()
-          ).padStart(2, '0')}`;
+      const rawMappedRecords: AttendanceRecord[] = (attendanceRes.data || []).map((db: DbAttendance) => {
+        const { dateStr, timeStr } = extractWibDateAndTime(db.created_at, db.tanggal);
         return {
           id: db.id,
           studentId: String(db.siswa_id || db.nisn_siswa || ''),
           date: dateStr,
-          scannedAt: `${String(d.getHours()).padStart(2, '0')}:${String(
-            d.getMinutes()
-          ).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`,
-          status: db.status,
+          scannedAt: timeStr,
+          status: normalizeAttendanceStatus(db.status),
         };
       });
+
+      // Deduplikasi per siswa + tanggal agar rekaman terbaru (ID paling akhir) selalu menjadi status aktif
+      const dedupedByStudentDate = new Map<string, AttendanceRecord>();
+      rawMappedRecords.forEach((rec) => {
+        if (rec.studentId && rec.date) {
+          dedupedByStudentDate.set(`${rec.studentId}_${rec.date}`, rec);
+        }
+      });
+      const mappedRecords = Array.from(dedupedByStudentDate.values());
 
       const mergedRecords = mergeRecordsWithOfflineQueue(mappedRecords);
       setRecords(mergedRecords);
@@ -329,8 +333,8 @@ export default function App() {
     };
   }, [processOfflineQueue, fetchStudentsAndRecords]);
 
-  // School Profile state & Supabase Realtime synchronization
-  const [holidays, setHolidays] = useState<Holiday[]>(INITIAL_HOLIDAYS);
+  // School Profile & Holidays state directly from Supabase
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [school, setSchool] = useState<SchoolProfile>(() => getCachedSchoolProfile() || INITIAL_SCHOOL_PROFILE);
   const [schoolRowId, setSchoolRowId] = useState<any>(1);
   const [isSchoolTableReady, setIsSchoolTableReady] = useState<boolean>(true);
@@ -339,6 +343,37 @@ export default function App() {
     getCachedHomeroomTeachers()
   );
   const [isHomeroomModalOpen, setIsHomeroomModalOpen] = useState<boolean>(false);
+
+  // Membaca data Hari Libur secara langsung dari tabel `holidays` di Supabase
+  const fetchHolidays = useCallback(async () => {
+    try {
+      // Bersihkan sisa key localStorage lama jika ada agar 100% mengacu ke Supabase
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('sdn06_holidays_v1');
+        window.localStorage.removeItem('sdn06_holidays_v2');
+      }
+
+      const { data, error } = await supabase
+        .from('holidays')
+        .select('*')
+        .order('date', { ascending: true });
+
+      if (error) {
+        console.warn('Error fetching holidays from Supabase:', error.message);
+        return;
+      }
+
+      const mappedHolidays: Holiday[] = (data || []).map((row: any) => ({
+        id: row.id,
+        date: String(row.date || '').slice(0, 10),
+        reason: row.description || row.reason || row.keterangan || 'Hari Libur',
+      }));
+
+      setHolidays(mappedHolidays);
+    } catch (err) {
+      console.warn('Unexpected error fetching holidays from Supabase:', err);
+    }
+  }, []);
 
   const fetchHomeroomTeachers = useCallback(async () => {
     try {
@@ -381,8 +416,9 @@ export default function App() {
     fetchStudentsAndRecords();
     fetchSchoolProfile();
     fetchHomeroomTeachers();
+    fetchHolidays();
 
-    // Berlangganan (Realtime Subscription) perubahan tabel profil_sekolah, siswa (foto_url), presensi, dan wali_kelas dari Supabase
+    // Berlangganan (Realtime Subscription) perubahan tabel profil_sekolah, siswa, presensi, wali_kelas, dan holidays dari Supabase
     const unsubscribe = subscribeSchoolProfileRealtime((updatedProfile) => {
       setSchool(updatedProfile);
     });
@@ -410,13 +446,27 @@ export default function App() {
           fetchHomeroomTeachers();
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'holidays' },
+        () => {
+          fetchHolidays();
+        }
+      )
       .subscribe();
+
+    const handleWindowFocus = () => {
+      fetchHolidays();
+      fetchStudentsAndRecords({ silent: true });
+    };
+    window.addEventListener('focus', handleWindowFocus);
 
     return () => {
       unsubscribe();
       supabase.removeChannel(dataChannel);
+      window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [fetchStudentsAndRecords, fetchSchoolProfile, fetchHomeroomTeachers]);
+  }, [fetchStudentsAndRecords, fetchSchoolProfile, fetchHomeroomTeachers, fetchHolidays]);
 
   const [account, setAccount] = useState<AdminAccount>(() => getStoredAdminAccount());
 
@@ -434,6 +484,14 @@ export default function App() {
   const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const [scanInitialValue, setScanInitialValue] = useState<string>('');
+
+  // Sinkronkan ulang data Hari Libur & Presensi dari Supabase setiap kali berpindah menu/tab
+  useEffect(() => {
+    fetchHolidays();
+    if (activeTab === 'daily' || activeTab === 'monthly' || activeTab === 'scan') {
+      fetchStudentsAndRecords({ silent: true });
+    }
+  }, [activeTab, fetchHolidays, fetchStudentsAndRecords]);
 
   // 1 & 2. PENANGANAN INITIAL LOADING, SESSION CHECK (getSession), DAN AUTH STATE LISTENER (onAuthStateChange)
   useEffect(() => {
@@ -609,19 +667,90 @@ export default function App() {
 
   // Replaces the old local storage syncs - we don't save students or records here anymore
   
-  // Handlers for Holidays
-  const handleAddHoliday = useCallback((date: string, reason: string) => {
-    const newHoliday: Holiday = {
-      id: `hol-${Date.now()}`,
-      date,
-      reason,
-    };
-    setHolidays((prev) => [...prev, newHoliday]);
-  }, []);
+  // Handlers for Holidays (Terhubung langsung ke tabel `holidays` di Supabase)
+  const handleAddHoliday = useCallback(
+    async (date: string, reason: string) => {
+      const cleanDate = date.trim();
+      const cleanReason = reason.trim();
 
-  const handleDeleteHoliday = useCallback((id: string) => {
-    setHolidays((prev) => prev.filter((h) => h.id !== id));
-  }, []);
+      try {
+        // Jika tanggal yang sama sudah ada di tabel `holidays`, hapus terlebih dahulu agar tidak duplikat
+        const existingOnDate = holidays.find((h) => h.date === cleanDate);
+        if (existingOnDate) {
+          await supabase.from('holidays').delete().eq('id', existingOnDate.id);
+        }
+
+        const { data, error } = await supabase
+          .from('holidays')
+          .insert([{ date: cleanDate, description: cleanReason }])
+          .select();
+
+        if (error) {
+          throw error;
+        }
+
+        if (data && data.length > 0) {
+          const inserted = data[0];
+          const newHol: Holiday = {
+            id: inserted.id,
+            date: String(inserted.date).slice(0, 10),
+            reason: inserted.description || cleanReason,
+          };
+          setHolidays((prev) => [...prev.filter((h) => h.date !== cleanDate), newHol]);
+        }
+
+        await fetchHolidays();
+        showToast(`Hari libur (${cleanDate}: ${cleanReason}) berhasil disimpan ke Supabase.`, 'success');
+      } catch (err: any) {
+        console.error('Gagal menyimpan hari libur ke Supabase:', err);
+        showToast(err?.message || 'Gagal menyimpan hari libur ke database Supabase.', 'offline');
+        throw err;
+      }
+    },
+    [holidays, fetchHolidays, showToast]
+  );
+
+  const handleDeleteHoliday = useCallback(
+    async (id: string, date?: string) => {
+      const targetHoliday = holidays.find((h) => String(h.id) === String(id) || (date && h.date === date));
+      const targetDate = date || targetHoliday?.date;
+
+      // Optimistic update agar UI langsung membuka kunci input presensi & rekap bulanan
+      setHolidays((prev) =>
+        prev.filter((h) => String(h.id) !== String(id) && (!targetDate || h.date !== targetDate))
+      );
+
+      try {
+        if (id && !String(id).startsWith('hol-')) {
+          const { error } = await supabase.from('holidays').delete().eq('id', id);
+          if (error && targetDate) {
+            await supabase.from('holidays').delete().eq('date', targetDate);
+          }
+        } else if (targetDate) {
+          await supabase.from('holidays').delete().eq('date', targetDate);
+        }
+
+        // Pastikan penghapusan berdasarkan tanggal juga bersih di database
+        if (targetDate) {
+          await supabase.from('holidays').delete().eq('date', targetDate);
+        }
+
+        await fetchHolidays();
+        processOfflineQueue();
+        await fetchStudentsAndRecords({ silent: true });
+
+        showToast(
+          `Hari libur ${targetDate || ''} berhasil dihapus permanen dari database. Input presensi & Rekap Bulanan kini aktif.`,
+          'success'
+        );
+      } catch (err: any) {
+        console.error('Gagal menghapus hari libur dari Supabase:', err);
+        await fetchHolidays();
+        showToast('Gagal menghapus hari libur dari database.', 'offline');
+      }
+    },
+    [holidays, fetchHolidays, processOfflineQueue, fetchStudentsAndRecords, showToast]
+  );
 
   // 2. LOGIKA PENYIMPANAN OFFLINE-FIRST (LOCAL QUEUE + BACKGROUND SYNC)
   const applyLocalAttendanceUpdate = useCallback((incomingRecords: AttendanceRecord[]) => {
@@ -633,6 +762,7 @@ export default function App() {
         map.set(`${r.studentId}_${r.date}`, {
           ...r,
           id: existing?.id && !String(existing.id).startsWith('att-') ? existing.id : r.id,
+          status: normalizeAttendanceStatus(r.status),
           scannedAt: r.scannedAt || existing?.scannedAt || '07:00:00',
         });
       });
@@ -645,7 +775,7 @@ export default function App() {
   // Handlers for Attendance ("Simpan Presensi")
   const handleSaveAttendance = useCallback(
     async (newRecords: AttendanceRecord[]) => {
-      // Perbarui state lokal secara instan agar antarmuka langsung merespons tanpa jeda
+      // Perbarui state lokal secara instan agar antarmuka & Rekap Bulanan langsung merespons tanpa jeda
       applyLocalAttendanceUpdate(newRecords);
 
       // Jika sedang offline, langsung simpan ke antrean localStorage (`offline_sync_queue`) tanpa error
@@ -659,42 +789,11 @@ export default function App() {
       }
 
       try {
-        const primaryInserts = newRecords.map((r) => {
-          const payload: any = {
-            siswa_id: r.studentId,
-            tanggal: r.date,
-            status: r.status,
-            created_at: `${r.date}T${(r.scannedAt || '07:00:00').replace(/\./g, ':')}+07:00`,
-          };
-          if (typeof r.id === 'number' || (typeof r.id === 'string' && !r.id.startsWith('att-'))) {
-            payload.id = r.id;
-          }
-          return payload;
-        });
-
-        const { error } = await supabase.from('presensi').upsert(primaryInserts).select();
-
-        if (error) {
-          const fallbackInserts = newRecords.map((r) => {
-            const payload: any = {
-              nisn_siswa: r.studentId,
-              created_at: `${r.date}T${(r.scannedAt || '07:00:00').replace(/\./g, ':')}+07:00`,
-              status: r.status,
-            };
-            if (typeof r.id === 'number' || (typeof r.id === 'string' && !r.id.startsWith('att-'))) {
-              payload.id = r.id;
-            }
-            return payload;
-          });
-          const { error: fbError } = await supabase.from('presensi').upsert(fallbackInserts).select();
-          if (fbError) throw fbError;
-        }
-
-        showToast('Presensi berhasil disimpan ke server.', 'success');
-        fetchStudentsAndRecords({ silent: true });
+        await upsertAttendanceRecordsToSupabase(newRecords);
+        showToast('Presensi berhasil disimpan ke server & diperbarui di Rekap Bulanan.', 'success');
+        await fetchStudentsAndRecords({ silent: true });
       } catch (e) {
         console.warn('Koneksi terputus saat menyimpan, mengalihkan ke antrean offline:', e);
-        // Jangan tampilkan pesan error, simpan ke offline_sync_queue dan beri Toast offline
         enqueueOfflineAttendance(newRecords);
         showToast(
           'Internet terputus. Presensi tersimpan di perangkat dan akan disinkronkan otomatis.',
@@ -721,37 +820,8 @@ export default function App() {
       }
 
       try {
-        const cleanTime = (newRecord.scannedAt || '07:00:00').replace(/\./g, ':');
-        const primaryPayload: any = {
-          siswa_id: newRecord.studentId,
-          tanggal: newRecord.date,
-          status: newRecord.status,
-          created_at: `${newRecord.date}T${cleanTime}+07:00`,
-        };
-
-        if (
-          typeof newRecord.id === 'number' ||
-          (typeof newRecord.id === 'string' && !newRecord.id.startsWith('att-'))
-        ) {
-          primaryPayload.id = newRecord.id;
-        }
-
-        const { error } = await supabase.from('presensi').upsert(primaryPayload).select();
-
-        if (error) {
-          const fallbackPayload: any = {
-            nisn_siswa: newRecord.studentId,
-            created_at: `${newRecord.date}T${cleanTime}+07:00`,
-            status: newRecord.status,
-          };
-          if (primaryPayload.id !== undefined) {
-            fallbackPayload.id = primaryPayload.id;
-          }
-          const { error: fbError } = await supabase.from('presensi').upsert(fallbackPayload).select();
-          if (fbError) throw fbError;
-        }
-
-        fetchStudentsAndRecords({ silent: true });
+        await upsertAttendanceRecordsToSupabase([newRecord]);
+        await fetchStudentsAndRecords({ silent: true });
       } catch (e) {
         console.warn('Koneksi terputus saat scan, menyimpan ke antrean offline:', e);
         enqueueOfflineAttendance([newRecord]);
@@ -1905,6 +1975,7 @@ export default function App() {
               onSelectClass={setSelectedClass}
               onSaveAttendance={handleSaveAttendance}
               onOpenScanner={() => setActiveTab('scan')}
+              onDeleteHoliday={handleDeleteHoliday}
               ewsIndicatorsMap={ewsIndicatorsMap}
               onPrintBkLetter={(ind) => setBkLetterTarget(ind)}
               onSendWaWarning={(ind) =>
@@ -1922,6 +1993,7 @@ export default function App() {
               school={school}
               onRecordAttendance={handleRecordSingleAttendance}
               onDeleteRecord={handleDeleteRecord}
+              onDeleteHoliday={handleDeleteHoliday}
               initialScanValue={scanInitialValue}
             />
           )}
@@ -1962,6 +2034,7 @@ export default function App() {
               holidays={holidays}
               onAddHoliday={handleAddHoliday}
               onDeleteHoliday={handleDeleteHoliday}
+              onRefreshHolidays={fetchHolidays}
             />
           )}
 

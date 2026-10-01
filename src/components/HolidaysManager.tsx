@@ -1,36 +1,67 @@
 import React, { useState } from 'react';
-import { Calendar, Trash2, Plus, AlertCircle, Sparkles } from 'lucide-react';
+import { Calendar, Trash2, Plus, AlertCircle, Sparkles, RefreshCw, Loader2 } from 'lucide-react';
 import { Holiday } from '../types';
 
 interface HolidaysManagerProps {
   holidays: Holiday[];
-  onAddHoliday: (date: string, reason: string) => void;
-  onDeleteHoliday: (id: string) => void;
+  onAddHoliday: (date: string, reason: string) => Promise<void> | void;
+  onDeleteHoliday: (id: string, date?: string) => Promise<void> | void;
+  onRefreshHolidays?: () => Promise<void> | void;
 }
 
 export const HolidaysManager: React.FC<HolidaysManagerProps> = ({
   holidays,
   onAddHoliday,
   onDeleteHoliday,
+  onRefreshHolidays,
 }) => {
   const [date, setDate] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!date.trim() || !reason.trim()) {
       setError('Harap isi tanggal dan keterangan hari libur!');
       return;
     }
-    onAddHoliday(date, reason);
-    setDate('');
-    setReason('');
     setError('');
+    setIsSubmitting(true);
+    try {
+      await onAddHoliday(date.trim(), reason.trim());
+      setDate('');
+      setReason('');
+    } catch (err: any) {
+      setError(err?.message || 'Gagal menyimpan hari libur ke database.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (h: Holiday) => {
+    setDeletingId(String(h.id));
+    try {
+      await onDeleteHoliday(String(h.id), h.date);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!onRefreshHolidays) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshHolidays();
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const sortedHolidays = [...holidays].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    (a, b) => a.date.localeCompare(b.date)
   );
 
   return (
@@ -39,14 +70,28 @@ export const HolidaysManager: React.FC<HolidaysManagerProps> = ({
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Calendar className="w-5 h-5 text-emerald-600" />
-            Kalender Hari Libur & Akademik
+            Kalender Hari Libur &amp; Akademik
           </h2>
           <p className="text-sm text-slate-500 mt-1">
-            Hari libur yang ditambahkan otomatis tidak dihitung sebagai hari efektif absensi belajar.
+            Hari libur tersinkronisasi otomatis di semua perangkat. Tanggal yang tidak terdaftar di bawah ini dihitung sebagai hari efektif belajar aktif.
           </p>
         </div>
-        <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit">
-          Total {holidays.length} Hari Libur Terdaftar
+        <div className="flex items-center gap-2">
+          {onRefreshHolidays && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+              title="Muat ulang daftar hari libur dari database"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span>Sinkronkan</span>
+            </button>
+          )}
+          <div className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit">
+            Total {holidays.length} Hari Libur Terdaftar
+          </div>
         </div>
       </div>
 
@@ -98,10 +143,15 @@ export const HolidaysManager: React.FC<HolidaysManagerProps> = ({
               <button
                 type="submit"
                 id="btn-add-holiday"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer disabled:opacity-50"
               >
-                <Plus className="w-4 h-4" />
-                Simpan
+                {isSubmitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Plus className="w-4 h-4" />
+                )}
+                <span>{isSubmitting ? 'Menyimpan...' : 'Simpan'}</span>
               </button>
             </div>
           </div>
@@ -123,18 +173,24 @@ export const HolidaysManager: React.FC<HolidaysManagerProps> = ({
               {sortedHolidays.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="p-8 text-center text-slate-400 text-sm">
-                    Belum ada hari libur yang ditambahkan.
+                    Belum ada hari libur yang ditambahkan. Semua hari Senin s.d. Jumat dihitung sebagai hari sekolah aktif.
                   </td>
                 </tr>
               ) : (
                 sortedHolidays.map((h) => {
-                  const dateObj = new Date(h.date);
+                  const parts = h.date.split('-');
+                  const dateObj =
+                    parts.length === 3
+                      ? new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
+                      : new Date(h.date);
                   const formattedDate = dateObj.toLocaleDateString('id-ID', {
                     weekday: 'long',
                     day: 'numeric',
                     month: 'long',
                     year: 'numeric',
                   });
+
+                  const isDeleting = deletingId === String(h.id);
 
                   return (
                     <tr key={h.id} className="hover:bg-slate-50/75 transition-colors">
@@ -150,11 +206,17 @@ export const HolidaysManager: React.FC<HolidaysManagerProps> = ({
                       </td>
                       <td className="p-4 text-center">
                         <button
-                          onClick={() => onDeleteHoliday(h.id)}
-                          className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                          title="Hapus hari libur"
+                          type="button"
+                          disabled={isDeleting}
+                          onClick={() => handleDelete(h)}
+                          className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                          title="Hapus hari libur secara permanen"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {isDeleting ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </button>
                       </td>
                     </tr>

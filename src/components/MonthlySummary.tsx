@@ -27,6 +27,7 @@ import {
   fetchHomeroomTeacherByClass,
   normalizeClassGrade,
 } from '../utils/homeroomTeacherService';
+import { normalizeAttendanceStatus } from '../utils/offlineSync';
 
 interface MonthlySummaryProps {
   students: Student[];
@@ -118,14 +119,18 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
 
   // Filter students by selected class
   const classStudents = useMemo(() => {
-    return students.filter((s) => s.classGrade === selectedClass);
+    const normSelected = normalizeClassGrade(selectedClass);
+    return students.filter((s) => normalizeClassGrade(s.classGrade) === normSelected);
   }, [students, selectedClass]);
+
+  const holidayDateSet = useMemo(() => {
+    return new Set(holidays.map((h) => h.date));
+  }, [holidays]);
 
   // Calculate effective days in the selected month
   const effectiveDays = useMemo(() => {
     const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
     let count = 0;
-    const holidayDates = new Set(holidays.map((h) => h.date));
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = new Date(selectedYear, selectedMonth, d);
@@ -136,12 +141,12 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
       const dStr = String(dt.getDate()).padStart(2, '0');
       const dateKey = `${yStr}-${mStr}-${dStr}`;
 
-      if (!holidayDates.has(dateKey)) {
+      if (!holidayDateSet.has(dateKey)) {
         count++;
       }
     }
     return Math.max(count, 1);
-  }, [selectedYear, selectedMonth, holidays]);
+  }, [selectedYear, selectedMonth, holidayDateSet]);
 
   // Calculate monthly stats per student
   const stats: StudentMonthlyStat[] = useMemo(() => {
@@ -149,7 +154,10 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
 
     return classStudents.map((student) => {
       const studentRecords = records.filter(
-        (r) => r.studentId === student.nisn && r.date.startsWith(monthPrefix)
+        (r) =>
+          (r.studentId === student.nisn || String(r.studentId) === String(student.id)) &&
+          r.date.startsWith(monthPrefix) &&
+          !holidayDateSet.has(r.date)
       );
 
       let hadir = 0;
@@ -160,25 +168,27 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
 
       const dailyMap = new Map<string, string>();
 
+      // Selalu gunakan status terbaru untuk tanggal tersebut
       studentRecords.forEach((r) => {
-        if (!dailyMap.has(r.date)) {
-          dailyMap.set(r.date, r.status);
-        }
+        dailyMap.set(r.date, normalizeAttendanceStatus(r.status));
       });
 
       dailyMap.forEach((status) => {
-        if (status === 'Hadir') hadir++;
-        else if (status === 'Terlambat') {
-          hadir++; // Terlambat counts as hadir essentially, but we also track it separately
+        if (status === 'Hadir') {
+          hadir++;
+        } else if (status === 'Terlambat') {
+          hadir++; // Terlambat tetap dihitung hadir di sekolah, sekaligus direkap pada kolom Terlambat
           terlambat++;
+        } else if (status === 'Izin') {
+          izin++;
+        } else if (status === 'Sakit') {
+          sakit++;
+        } else if (status === 'Alpa') {
+          alpa++;
         }
-        else if (status === 'Izin') izin++;
-        else if (status === 'Sakit') sakit++;
-        else if (status === 'Alpa') alpa++;
       });
 
       const totalRecorded = hadir + izin + sakit + alpa;
-      // In Indonesian schools: % Hadir = (Hadir / (Hadir + Sakit + Izin + Alpa) * 100) or against effectiveDays
       const denom = totalRecorded > 0 ? totalRecorded : effectiveDays;
       const pct = Math.min(100, Math.round((hadir / denom) * 100));
 
@@ -194,7 +204,7 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
         pct,
       };
     });
-  }, [classStudents, records, selectedMonth, selectedYear, effectiveDays]);
+  }, [classStudents, records, selectedMonth, selectedYear, effectiveDays, holidayDateSet]);
 
   // Filtered by search
   const filteredStats = useMemo(() => {
@@ -214,6 +224,7 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
       ? Math.round(stats.reduce((acc, s) => acc + s.pct, 0) / stats.length)
       : 0;
   const totalHadirAll = stats.reduce((acc, s) => acc + s.hadir, 0);
+  const totalTerlambatAll = stats.reduce((acc, s) => acc + s.terlambat, 0);
   const totalIzinAll = stats.reduce((acc, s) => acc + s.izin, 0);
   const totalSakitAll = stats.reduce((acc, s) => acc + s.sakit, 0);
   const totalAlpaAll = stats.reduce((acc, s) => acc + s.alpa, 0);
@@ -467,7 +478,7 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
       </div>
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-xs font-medium">Total Siswa</span>
@@ -493,6 +504,15 @@ export const MonthlySummary: React.FC<MonthlySummaryProps> = ({
           </div>
           <div className="text-xl font-bold text-slate-900">{totalHadirAll}</div>
           <div className="text-[11px] text-emerald-600">Presensi masuk</div>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 mb-1">
+            <span className="text-xs font-medium">Terlambat (T)</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
+          </div>
+          <div className="text-xl font-bold text-orange-600">{totalTerlambatAll}</div>
+          <div className="text-[11px] text-orange-600">Datang terlambat</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
